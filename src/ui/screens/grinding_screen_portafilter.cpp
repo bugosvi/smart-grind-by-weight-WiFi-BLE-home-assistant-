@@ -47,6 +47,18 @@ constexpr int16_t kMoundClipY = kRimY - 22;                     // 70 (allows 20
 constexpr int16_t kMoundClipW = (kBasketTopHalfW - 2) * 2;      // 56
 constexpr int16_t kMoundClipH = (kBasketBottomY - kMoundClipY); // 52
 
+// Coffee mound: the flat fill reaches the rim at kMoundFillFullFrac of the
+// dose while the dome above it grows from kMoundDomeStartFrac to the full dose.
+constexpr float kMoundFillFullFrac = 0.78f;
+constexpr float kMoundDomeStartFrac = 0.25f;
+constexpr float kMoundDomeMaxH = 32.0f;
+constexpr int16_t kMoundDomeMinH = 2;
+constexpr int16_t kMoundClipTopInset = 2;
+// The drawn level eases toward the measured level every animation frame, so
+// 10 Hz scale readings and scale noise do not show as steps or flicker.
+constexpr float kMoundEaseRate = 0.22f;
+constexpr float kMoundSnapFrac = 0.002f;
+
 constexpr uint32_t kCoffeeShades[4] = {0x5C3317, 0x7A4622, 0x9C6134, 0xBA7B47};
 
 int32_t font_baseline_offset(const lv_font_t* font) {
@@ -432,7 +444,7 @@ void GrindingScreenPortafilter::show() {
     if (!screen_) return;
     lv_obj_clear_flag(screen_, LV_OBJ_FLAG_HIDDEN);
     visible_ = true;
-    update_mound_geometry();
+    snap_mound_to_target();
     if (anim_timer_) {
         lv_timer_resume(anim_timer_);
     }
@@ -556,7 +568,6 @@ void GrindingScreenPortafilter::update_current_weight(float weight) {
         std::snprintf(buf, sizeof(buf), SYS_WEIGHT_DISPLAY_FORMAT, safe_weight);
         set_weight_text(buf);
     }
-    update_mound_geometry();
 }
 
 void GrindingScreenPortafilter::update_tare_display() {
@@ -576,15 +587,12 @@ void GrindingScreenPortafilter::update_tare_display() {
     hide_all_particles();
     refresh_visual_accent();
     set_status_badge("TARING", 0x29B6F6);
-    update_mound_geometry();
+    snap_mound_to_target();
 }
 
 void GrindingScreenPortafilter::update_progress(int percent) {
     const int clamped = std::clamp(percent, 0, 100);
-    if (displayed_progress_ != clamped) {
-        displayed_progress_ = clamped;
-        update_mound_geometry();
-    }
+    displayed_progress_ = clamped;
 
     if (time_mode_ && target_time_s_ > 0.0f) {
         const float elapsed_s = (clamped / 100.0f) * target_time_s_;
@@ -807,9 +815,6 @@ void GrindingScreenPortafilter::reset_chart_data() {
     overshoot_ = false;
     phase_tracking_active_ = false;
     current_phase_ = GrindPhase::IDLE;
-    last_fill_h_ = -1;
-    last_dome_h_ = -1;
-    last_mound_visible_ = false;
     set_completed(false, false);
     set_status_badge(manual_mode_ ? "GRINDING" : "TARING",
                      manual_mode_ ? 0xFFA726 : 0x29B6F6);
@@ -830,7 +835,7 @@ void GrindingScreenPortafilter::reset_chart_data() {
         lv_label_set_text(flow_legend_label_, displayed_flow_text_);
     }
     hide_all_particles();
-    update_mound_geometry();
+    snap_mound_to_target();
 }
 
 void GrindingScreenPortafilter::set_time_mode(bool enabled) {
@@ -846,72 +851,82 @@ void GrindingScreenPortafilter::set_manual_mode(bool enabled) {
     }
 }
 
-float GrindingScreenPortafilter::get_mound_surface_y() const {
-    float frac = 0.0f;
+float GrindingScreenPortafilter::mound_target_fraction() const {
+    if (taring_) {
+        return 0.0f;
+    }
     if (manual_mode_) {
         const float manual_ref = std::max(20.0f, current_weight_g_ + 2.0f);
-        frac = std::clamp(current_weight_g_ / manual_ref, 0.0f, 1.0f);
-    } else if (!time_mode_ && target_weight_g_ > 0.1f) {
-        frac = std::clamp(current_weight_g_ / target_weight_g_, 0.0f, 1.0f);
-    } else {
-        frac = std::clamp(displayed_progress_ / 100.0f, 0.0f, 1.0f);
+        return std::clamp(current_weight_g_ / manual_ref, 0.0f, 1.0f);
     }
-    const float fill_frac = std::min(1.0f, frac / 0.78f);
-    const float fill_y = static_cast<float>(kBasketBottomY) -
-                         fill_frac * static_cast<float>(kBasketBottomY - kRimY);
-    const float dome_h = std::max(0.0f, (frac - 0.30f) / 0.70f) * 18.0f;
-    return fill_y - dome_h * 0.5f;
+    if (!time_mode_ && target_weight_g_ > 0.1f) {
+        return std::clamp(current_weight_g_ / target_weight_g_, 0.0f, 1.0f);
+    }
+    return std::clamp(displayed_progress_ / 100.0f, 0.0f, 1.0f);
 }
 
-void GrindingScreenPortafilter::update_mound_geometry() {
-    if (!mound_fill_ || !mound_dome_) return;
-
-    float frac = 0.0f;
-    if (manual_mode_) {
-        const float manual_ref = std::max(20.0f, current_weight_g_ + 2.0f);
-        frac = std::clamp(current_weight_g_ / manual_ref, 0.0f, 1.0f);
-    } else if (!time_mode_ && target_weight_g_ > 0.1f) {
-        frac = std::clamp(current_weight_g_ / target_weight_g_, 0.0f, 1.0f);
-    } else {
-        frac = std::clamp(displayed_progress_ / 100.0f, 0.0f, 1.0f);
+GrindingScreenPortafilter::MoundShape GrindingScreenPortafilter::mound_shape(float fraction) {
+    MoundShape shape;
+    if (fraction <= 0.01f) {
+        return shape;
     }
+    const int16_t basket_h = kBasketBottomY - kRimY;
+    const float fill_frac = std::min(1.0f, fraction / kMoundFillFullFrac);
+    shape.fill_h = std::max<int16_t>(3, static_cast<int16_t>(std::round(fill_frac * basket_h)));
 
-    if (frac <= 0.01f || taring_) {
-        if (last_mound_visible_ || last_fill_h_ != 0) {
-            lv_obj_add_flag(mound_fill_, LV_OBJ_FLAG_HIDDEN);
-            lv_obj_add_flag(mound_dome_, LV_OBJ_FLAG_HIDDEN);
-            last_mound_visible_ = false;
-            last_fill_h_ = 0;
-            last_dome_h_ = 0;
-        }
+    const float dome_frac =
+        std::clamp((fraction - kMoundDomeStartFrac) / (1.0f - kMoundDomeStartFrac), 0.0f, 1.0f);
+    const int16_t dome_h = static_cast<int16_t>(std::round(dome_frac * kMoundDomeMaxH));
+    shape.dome_h = (dome_h >= kMoundDomeMinH) ? dome_h : 0;
+    return shape;
+}
+
+float GrindingScreenPortafilter::mound_surface_y() const {
+    const int16_t surface = kBasketBottomY - mound_shape_.fill_h - (mound_shape_.dome_h / 2);
+    return static_cast<float>(std::max<int16_t>(surface, kMoundClipY + kMoundClipTopInset));
+}
+
+void GrindingScreenPortafilter::snap_mound_to_target() {
+    mound_fraction_ = mound_target_fraction();
+    apply_mound_shape(mound_shape(mound_fraction_));
+}
+
+void GrindingScreenPortafilter::advance_mound() {
+    const float target = mound_target_fraction();
+    const float remaining = target - mound_fraction_;
+    if (taring_ || std::fabs(remaining) < kMoundSnapFrac) {
+        mound_fraction_ = target;
+    } else {
+        mound_fraction_ += remaining * kMoundEaseRate;
+    }
+    apply_mound_shape(mound_shape(mound_fraction_));
+}
+
+void GrindingScreenPortafilter::apply_mound_shape(const MoundShape& shape) {
+    if (!mound_fill_ || !mound_dome_) return;
+    if (mound_shape_applied_ && shape.fill_h == mound_shape_.fill_h &&
+        shape.dome_h == mound_shape_.dome_h) {
+        return; // Avoid redundant LVGL invalidations
+    }
+    mound_shape_ = shape;
+    mound_shape_applied_ = true;
+
+    if (shape.fill_h == 0) {
+        lv_obj_add_flag(mound_fill_, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(mound_dome_, LV_OBJ_FLAG_HIDDEN);
         return;
     }
 
-    const int16_t basket_h = kBasketBottomY - kRimY; // 30px
-    const float fill_frac = std::min(1.0f, frac / 0.78f);
-    const int16_t fill_h = std::max<int16_t>(3, static_cast<int16_t>(std::round(fill_frac * basket_h)));
-    const float dome_frac = std::max(0.0f, (frac - 0.25f) / 0.75f);
-    const int16_t dome_h = (dome_frac > 0.02f)
-                               ? static_cast<int16_t>(std::round(8.0f + dome_frac * 24.0f))
-                               : 0;
-
-    if (last_mound_visible_ && fill_h == last_fill_h_ && dome_h == last_dome_h_) {
-        return; // Avoid redundant 60Hz LVGL invalidations
-    }
-
-    last_mound_visible_ = true;
-    last_fill_h_ = fill_h;
-    last_dome_h_ = dome_h;
-
-    const int16_t fill_top = kMoundClipH - fill_h;
+    const int16_t fill_top = kMoundClipH - shape.fill_h;
     lv_obj_clear_flag(mound_fill_, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_set_size(mound_fill_, kMoundClipW - 6, fill_h);
+    lv_obj_set_size(mound_fill_, kMoundClipW - 6, shape.fill_h);
     lv_obj_set_pos(mound_fill_, 3, fill_top);
 
-    if (dome_h > 0) {
-        const int16_t dome_top = std::max<int16_t>(2, fill_top - (dome_h / 2));
+    if (shape.dome_h > 0) {
+        const int16_t dome_top =
+            std::max<int16_t>(kMoundClipTopInset, fill_top - (shape.dome_h / 2));
         lv_obj_clear_flag(mound_dome_, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_set_size(mound_dome_, kMoundClipW - 4, dome_h);
+        lv_obj_set_size(mound_dome_, kMoundClipW - 4, shape.dome_h);
         lv_obj_set_pos(mound_dome_, 2, dome_top);
     } else {
         lv_obj_add_flag(mound_dome_, LV_OBJ_FLAG_HIDDEN);
@@ -953,6 +968,8 @@ void GrindingScreenPortafilter::anim_timer_cb(lv_timer_t* timer) {
 void GrindingScreenPortafilter::step_animation() {
     if (!visible_) return;
 
+    advance_mound();
+
     // Spin taring arc smoothly while taring
     if (taring_ && tare_spinner_) {
         tare_angle_ = static_cast<int16_t>((tare_angle_ + 18) % 360);
@@ -983,7 +1000,7 @@ void GrindingScreenPortafilter::step_animation() {
     const bool emitting = active_flow > 0.12f;
     const float flow_norm = std::clamp(active_flow / 1.6f, 0.0f, 1.5f);
     const uint32_t emit_threshold = static_cast<uint32_t>(std::min(950.0f, 250.0f + flow_norm * 650.0f));
-    const float surface_y = get_mound_surface_y();
+    const float surface_y = mound_surface_y();
 
     for (auto& p : particles_) {
         if (!p.obj) continue;

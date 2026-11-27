@@ -38,6 +38,12 @@ private:
     static constexpr uint32_t kChartSampleIntervalMs = 150;
     static constexpr uint32_t kAnimPeriodMs = 40; // ~25 FPS while visible
 
+    // Pixel heights of the coffee fill and of the dome above it (0 = hidden).
+    struct MoundShape {
+        int16_t fill_h = 0;
+        int16_t dome_h = 0;
+    };
+
     struct Particle {
         lv_obj_t* obj = nullptr;
         float x = 140.0f;
@@ -99,9 +105,9 @@ private:
     float current_flow_gps_ = 0.0f;
     int displayed_progress_ = 0;
     int32_t chart_y_max_ = 185;
-    int16_t last_fill_h_ = -1;
-    int16_t last_dome_h_ = -1;
-    bool last_mound_visible_ = false;
+    float mound_fraction_ = 0.0f;   // Drawn fill level, eased toward the measured one
+    MoundShape mound_shape_{};
+    bool mound_shape_applied_ = false;
     uint32_t last_status_color_ = 0;
     uint32_t last_chart_sample_ms_ = 0;
     uint32_t last_flow_sample_ms_ = 0;
@@ -117,7 +123,12 @@ private:
 
     static void anim_timer_cb(lv_timer_t* timer);
     void step_animation();
-    void update_mound_geometry();
+    float mound_target_fraction() const;
+    static MoundShape mound_shape(float fraction);
+    float mound_surface_y() const;
+    void snap_mound_to_target();
+    void advance_mound();
+    void apply_mound_shape(const MoundShape& shape);
     void refresh_visual_accent();
     void set_status_badge(const char* text, uint32_t color_hex);
     void set_weight_text(const char* text);
@@ -126,7 +137,6 @@ private:
     void layout_weight_row();
     void hide_all_particles();
     void reset_particle(Particle& p, float flow_norm);
-    float get_mound_surface_y() const;
     uint32_t next_rand();
     void clear_clickable_recursive(lv_obj_t* obj);
 };
