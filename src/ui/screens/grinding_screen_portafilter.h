@@ -31,7 +31,7 @@ public:
     void set_manual_mode(bool enabled);
     void update_phase(GrindPhase phase, bool paused = false);
     // `final_weight_g` is the settled weight of a finished weight grind; the
-    // screen then shows its deviation from the target next to the readout.
+    // screen then shows its deviation from the target on the target line.
     void set_completed(bool completed, bool overshoot = false, float final_weight_g = NAN);
     void set_error_state(bool error);
 
@@ -59,7 +59,7 @@ private:
 
     lv_obj_t* screen_ = nullptr;
     lv_obj_t* profile_label_ = nullptr;
-    lv_obj_t* info_label_ = nullptr;
+    lv_obj_t* target_label_ = nullptr;
     lv_obj_t* stage_ = nullptr;
 
     // Clipped coffee mound widgets strictly inside the 60x30 basket
@@ -71,11 +71,9 @@ private:
     lv_obj_t* basket_shell_line_ = nullptr;
     lv_obj_t* tare_spinner_ = nullptr;
 
-    // Live weight readout with the target beside it + mini-chart + status badge
+    // Live weight readout + mini-chart + status badge
     lv_obj_t* weight_label_ = nullptr;
-    lv_obj_t* side_label_ = nullptr;
     lv_obj_t* finish_ring_ = nullptr;
-    const lv_font_t* weight_font_ = &lv_font_montserrat_56;
     lv_obj_t* chart_ = nullptr;
     lv_chart_series_t* weight_series_ = nullptr;
     lv_chart_series_t* flow_series_ = nullptr;
@@ -99,6 +97,7 @@ private:
     bool paused_ = false;
     bool completed_ = false;
     bool overshoot_ = false;
+    bool deviation_shown_ = false;  // Target line currently carries the finish deviation
     bool error_ = false;
     bool phase_tracking_active_ = false;
     GrindPhase current_phase_ = GrindPhase::IDLE;
@@ -119,11 +118,7 @@ private:
     int16_t tare_angle_ = 0;
 
     char displayed_weight_text_[16]{};
-    char displayed_info_text_[64]{};
-    char target_side_text_[20]{};
-    char result_side_text_[20]{};
-    char displayed_side_text_[20]{};
-    uint32_t side_color_ = 0;
+    char displayed_target_text_[64]{};
     int8_t finish_frame_ = -1;      // -1 while no finish pulse is playing
     char displayed_flow_text_[24]{};
     char displayed_status_text_[20]{};
@@ -138,10 +133,6 @@ private:
     void apply_mound_shape(const MoundShape& shape);
     void refresh_visual_accent();
     void set_status_badge(const char* text, uint32_t color_hex);
-    void set_weight_text(const char* text);
-    void set_target_side_text(const char* text);
-    void refresh_side_label();
-    void layout_weight_row();
     void start_finish_pulse();
     void stop_finish_pulse();
     void advance_finish_pulse();

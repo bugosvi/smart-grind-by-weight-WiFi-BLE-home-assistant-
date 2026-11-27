@@ -10,34 +10,19 @@
 
 namespace {
 
-// Vertical layout of the 280px-wide screen, top to bottom: profile name, a
-// one-line message (manual elapsed time, stop reason), the animation stage,
-// the weight row and the mini-chart. The start/stop button sits below.
+// Stage layout constants (280x142 animation stage, dead-center at CX = 140)
 constexpr int16_t kScreenW = 280;
-constexpr int16_t kProfileY = 36;
-constexpr int16_t kInfoY = 62;
-constexpr int16_t kStageY = 78;
-constexpr int16_t kStageH = 126;
-constexpr int16_t kWeightRowY = 198;
-constexpr int16_t kChartY = 264;
+constexpr int16_t kStageY = 82;
+constexpr int16_t kStageH = 142;
 constexpr int16_t kCenterX = 140;
-
-// Weight row: the live value in the large weight font with the target beside
-// it on a shared baseline. Values too wide for the row drop to the compact font.
-constexpr int16_t kWeightRowMaxW = 272;
-constexpr int16_t kWeightRowGap = 8;
-constexpr int16_t kWeightBoxSlackW = 4;
-const lv_font_t* const kWeightFontLarge = &lv_font_montserrat_56;
-const lv_font_t* const kWeightFontCompact = &lv_font_montserrat_36;
-const lv_font_t* const kSideFont = &lv_font_montserrat_24;
 
 // Chute mouth coordinates inside stage
 constexpr int16_t kChuteTopY = 2;
 constexpr int16_t kChuteMouthY = 20;
 
 // Sleek 60x30 58mm portafilter basket coordinates inside stage
-constexpr int16_t kRimY = 78;
-constexpr int16_t kBasketBottomY = 108;
+constexpr int16_t kRimY = 92;
+constexpr int16_t kBasketBottomY = 122;
 constexpr int16_t kBasketTopHalfW = 30;  // 110 .. 170 (60px)
 constexpr int16_t kBasketBotHalfW = 24;  // 116 .. 164 (48px)
 
@@ -62,8 +47,8 @@ constexpr float kMoundSnapFrac = 0.002f;
 // Finish pulse: one ring that expands from the basket and fades when a grind
 // completes. Drawn on the screen (not the stage) so it is not clipped.
 constexpr int16_t kFinishRingCenterY = kStageY + (kRimY + kBasketBottomY) / 2;
-constexpr int16_t kFinishRingStartD = 44;
-constexpr int16_t kFinishRingEndD = 104;
+constexpr int16_t kFinishRingStartD = 40;
+constexpr int16_t kFinishRingEndD = 76;
 constexpr int16_t kFinishRingWidth = 3;
 constexpr int8_t kFinishRingFrames = 15;  // 600 ms at the 40 ms animation period
 
@@ -71,31 +56,6 @@ constexpr uint32_t kColorInTolerance = 0x00E676;
 constexpr uint32_t kColorOvershoot = 0xFFB300;
 
 constexpr uint32_t kCoffeeShades[4] = {0x5C3317, 0x7A4622, 0x9C6134, 0xBA7B47};
-
-int32_t font_baseline_offset(const lv_font_t* font) {
-    return font->line_height - font->base_line;
-}
-
-int32_t text_width(const char* text, const lv_font_t* font) {
-    lv_point_t size;
-    lv_text_get_size(&size, text, font, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
-    return size.x;
-}
-
-// Width of `text` with every digit as wide as the widest digit, so a changing
-// reading keeps one box width and the row does not shift as digits change.
-int32_t stable_text_width(const char* text, const lv_font_t* font) {
-    int32_t digit_w = 0;
-    for (char digit = '0'; digit <= '9'; ++digit) {
-        digit_w = std::max<int32_t>(digit_w, lv_font_get_glyph_width(font, digit, 0));
-    }
-    int32_t width = 0;
-    for (const char* c = text; *c != '\0'; ++c) {
-        const bool is_digit = (*c >= '0' && *c <= '9');
-        width += is_digit ? digit_w : lv_font_get_glyph_width(font, static_cast<uint32_t>(*c), 0);
-    }
-    return width + kWeightBoxSlackW;
-}
 
 }  // namespace
 
@@ -121,18 +81,19 @@ void GrindingScreenPortafilter::create() {
     lv_label_set_text(profile_label_, "DOUBLE");
     lv_obj_set_style_text_font(profile_label_, &lv_font_montserrat_24, 0);
     lv_obj_set_style_text_color(profile_label_, lv_color_hex(THEME_COLOR_SECONDARY), 0);
-    lv_obj_align(profile_label_, LV_ALIGN_TOP_MID, 0, kProfileY);
+    lv_obj_align(profile_label_, LV_ALIGN_TOP_MID, 0, 38);
 
-    info_label_ = lv_label_create(screen_);
-    lv_label_set_text(info_label_, "");
-    lv_obj_set_style_text_font(info_label_, &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_color(info_label_, lv_color_hex(THEME_COLOR_TEXT_SECONDARY), 0);
-    lv_label_set_long_mode(info_label_, LV_LABEL_LONG_MODE_DOTS);
-    lv_obj_set_size(info_label_, 264, kStageY - kInfoY);
-    lv_obj_set_style_text_align(info_label_, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align(info_label_, LV_ALIGN_TOP_MID, 0, kInfoY);
+    target_label_ = lv_label_create(screen_);
+    lv_label_set_text(target_label_, "Target: 18.0g");
+    lv_obj_set_style_text_font(target_label_, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(target_label_, lv_color_hex(THEME_COLOR_TEXT_SECONDARY), 0);
+    lv_label_set_long_mode(target_label_, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(target_label_, 240);
+    lv_obj_set_style_text_align(target_label_, LV_TEXT_ALIGN_CENTER, 0);
+    lv_obj_align(target_label_, LV_ALIGN_TOP_MID, 0, 64);
+    std::snprintf(displayed_target_text_, sizeof(displayed_target_text_), "Target: 18.0g");
 
-    // --- ANIMATION STAGE ---
+    // --- ANIMATION STAGE (280 x 142) ---
     stage_ = lv_obj_create(screen_);
     lv_obj_set_size(stage_, kScreenW, kStageH);
     lv_obj_set_pos(stage_, 0, kStageY);
@@ -368,7 +329,7 @@ void GrindingScreenPortafilter::create() {
     lv_obj_remove_style(tare_spinner_, nullptr, LV_PART_KNOB);
     lv_obj_add_flag(tare_spinner_, LV_OBJ_FLAG_HIDDEN);
 
-    // --- FINISH PULSE RING (below the weight row in z-order) ---
+    // --- FINISH PULSE RING (created before the weight readout so it draws behind it) ---
     finish_ring_ = lv_obj_create(screen_);
     lv_obj_set_style_bg_opa(finish_ring_, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(finish_ring_, kFinishRingWidth, 0);
@@ -377,27 +338,18 @@ void GrindingScreenPortafilter::create() {
     lv_obj_clear_flag(finish_ring_, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(finish_ring_, LV_OBJ_FLAG_HIDDEN);
 
-    // --- LIVE WEIGHT READOUT WITH TARGET BESIDE IT ---
+    // --- LIVE WEIGHT READOUT ---
     weight_label_ = lv_label_create(screen_);
     lv_label_set_text(weight_label_, "0.0g");
-    lv_label_set_long_mode(weight_label_, LV_LABEL_LONG_MODE_CLIP);
-    lv_obj_set_style_text_font(weight_label_, weight_font_, 0);
-    lv_obj_set_style_text_align(weight_label_, LV_TEXT_ALIGN_RIGHT, 0);
+    lv_obj_set_style_text_font(weight_label_, &lv_font_montserrat_36, 0);
     lv_obj_set_style_text_color(weight_label_, lv_color_hex(THEME_COLOR_TEXT_PRIMARY), 0);
+    lv_obj_align(weight_label_, LV_ALIGN_TOP_MID, 0, 226);
     std::snprintf(displayed_weight_text_, sizeof(displayed_weight_text_), "0.0g");
-
-    side_label_ = lv_label_create(screen_);
-    lv_obj_set_style_text_font(side_label_, kSideFont, 0);
-    lv_obj_set_style_text_color(side_label_, lv_color_hex(THEME_COLOR_TEXT_SECONDARY), 0);
-    std::snprintf(target_side_text_, sizeof(target_side_text_), "/ 18.0g");
-    std::snprintf(displayed_side_text_, sizeof(displayed_side_text_), "%s", target_side_text_);
-    lv_label_set_text(side_label_, displayed_side_text_);
-    layout_weight_row();
 
     // --- LIVE DUAL-CURVE MINI-CHART (Weight + Flow Rate g/s) ---
     chart_ = lv_chart_create(screen_);
     lv_obj_set_size(chart_, 244, 64);
-    lv_obj_align(chart_, LV_ALIGN_TOP_MID, 0, kChartY);
+    lv_obj_align(chart_, LV_ALIGN_TOP_MID, 0, 266);
     lv_chart_set_type(chart_, LV_CHART_TYPE_LINE);
     lv_chart_set_point_count(chart_, kMiniChartPoints);
     lv_chart_set_update_mode(chart_, LV_CHART_UPDATE_MODE_SHIFT);
@@ -496,88 +448,29 @@ void GrindingScreenPortafilter::update_target_weight(float weight) {
             }
         }
     }
-    if (time_mode_ || manual_mode_) {
+    if (time_mode_ || manual_mode_ || !target_label_) {
         return;
     }
-    char buf[sizeof(target_side_text_)];
-    std::snprintf(buf, sizeof(buf), "/ " SYS_WEIGHT_DISPLAY_FORMAT,
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), "Target: " SYS_WEIGHT_DISPLAY_FORMAT,
                   std::isfinite(weight) ? weight : 0.0f);
-    set_target_side_text(buf);
-    update_target_weight_text("");
+    update_target_weight_text(buf);
 }
 
 void GrindingScreenPortafilter::update_target_weight_text(const char* text) {
-    if (!info_label_ || !text) return;
-    if (std::strcmp(displayed_info_text_, text) == 0) {
+    if (!target_label_ || !text) return;
+    if (std::strcmp(displayed_target_text_, text) == 0) {
         return;
     }
-    std::snprintf(displayed_info_text_, sizeof(displayed_info_text_), "%s", text);
-    lv_label_set_text(info_label_, displayed_info_text_);
+    std::snprintf(displayed_target_text_, sizeof(displayed_target_text_), "%s", text);
+    lv_label_set_text(target_label_, displayed_target_text_);
 }
 
 void GrindingScreenPortafilter::update_target_time(float seconds) {
     target_time_s_ = std::isfinite(seconds) ? seconds : 0.0f;
-    char buf[sizeof(target_side_text_)];
-    std::snprintf(buf, sizeof(buf), "/ %.1fs", target_time_s_);
-    set_target_side_text(buf);
-    update_target_weight_text("");
-}
-
-void GrindingScreenPortafilter::set_target_side_text(const char* text) {
-    std::snprintf(target_side_text_, sizeof(target_side_text_), "%s", text);
-    refresh_side_label();
-}
-
-void GrindingScreenPortafilter::refresh_side_label() {
-    if (!side_label_) return;
-    const bool show_result = completed_ && result_side_text_[0] != '\0';
-    const char* text = manual_mode_ ? "" : (show_result ? result_side_text_ : target_side_text_);
-    const uint32_t color = !show_result ? THEME_COLOR_TEXT_SECONDARY
-                                        : (overshoot_ ? kColorOvershoot : kColorInTolerance);
-    if (color != side_color_) {
-        side_color_ = color;
-        lv_obj_set_style_text_color(side_label_, lv_color_hex(color), 0);
-    }
-    if (std::strcmp(displayed_side_text_, text) == 0) {
-        return;
-    }
-    std::snprintf(displayed_side_text_, sizeof(displayed_side_text_), "%s", text);
-    lv_label_set_text(side_label_, displayed_side_text_);
-    layout_weight_row();
-}
-
-void GrindingScreenPortafilter::set_weight_text(const char* text) {
-    if (!weight_label_ || std::strcmp(displayed_weight_text_, text) == 0) {
-        return;
-    }
-    std::snprintf(displayed_weight_text_, sizeof(displayed_weight_text_), "%s", text);
-    lv_label_set_text(weight_label_, displayed_weight_text_);
-    layout_weight_row();
-}
-
-void GrindingScreenPortafilter::layout_weight_row() {
-    if (!weight_label_ || !side_label_) return;
-
-    const bool has_side = displayed_side_text_[0] != '\0';
-    const int32_t side_w = has_side ? text_width(displayed_side_text_, kSideFont) : 0;
-    const int32_t gap = has_side ? kWeightRowGap : 0;
-
-    const lv_font_t* font = kWeightFontLarge;
-    int32_t weight_w = stable_text_width(displayed_weight_text_, font);
-    if (weight_w + gap + side_w > kWeightRowMaxW) {
-        font = kWeightFontCompact;
-        weight_w = stable_text_width(displayed_weight_text_, font);
-    }
-    if (font != weight_font_) {
-        weight_font_ = font;
-        lv_obj_set_style_text_font(weight_label_, font, 0);
-    }
-
-    const int32_t row_x = (kScreenW - (weight_w + gap + side_w)) / 2;
-    const int32_t baseline_y = kWeightRowY + font_baseline_offset(kWeightFontLarge);
-    lv_obj_set_width(weight_label_, weight_w);
-    lv_obj_set_pos(weight_label_, row_x, baseline_y - font_baseline_offset(font));
-    lv_obj_set_pos(side_label_, row_x + weight_w + gap, baseline_y - font_baseline_offset(kSideFont));
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), "Time: %.1fs", target_time_s_);
+    update_target_weight_text(buf);
 }
 
 void GrindingScreenPortafilter::update_current_weight(float weight) {
@@ -590,10 +483,13 @@ void GrindingScreenPortafilter::update_current_weight(float weight) {
     }
     current_weight_g_ = (safe_weight < 0.0f) ? 0.0f : safe_weight;
 
-    if (!time_mode_) {
-        char buf[sizeof(displayed_weight_text_)];
+    if (!time_mode_ && weight_label_) {
+        char buf[16];
         std::snprintf(buf, sizeof(buf), SYS_WEIGHT_DISPLAY_FORMAT, safe_weight);
-        set_weight_text(buf);
+        if (std::strcmp(displayed_weight_text_, buf) != 0) {
+            std::snprintf(displayed_weight_text_, sizeof(displayed_weight_text_), "%s", buf);
+            lv_label_set_text(weight_label_, buf);
+        }
     }
 }
 
@@ -607,7 +503,12 @@ void GrindingScreenPortafilter::update_tare_display() {
     current_flow_gps_ = 0.0f;
     displayed_progress_ = 0;
 
-    set_weight_text("TARE");
+    if (weight_label_) {
+        if (std::strcmp(displayed_weight_text_, "TARE") != 0) {
+            std::snprintf(displayed_weight_text_, sizeof(displayed_weight_text_), "TARE");
+            lv_label_set_text(weight_label_, "TARE");
+        }
+    }
     if (tare_spinner_) {
         lv_obj_clear_flag(tare_spinner_, LV_OBJ_FLAG_HIDDEN);
     }
@@ -621,11 +522,14 @@ void GrindingScreenPortafilter::update_progress(int percent) {
     const int clamped = std::clamp(percent, 0, 100);
     displayed_progress_ = clamped;
 
-    if (time_mode_ && target_time_s_ > 0.0f) {
+    if (time_mode_ && target_time_s_ > 0.0f && weight_label_) {
         const float elapsed_s = (clamped / 100.0f) * target_time_s_;
-        char buf[sizeof(displayed_weight_text_)];
+        char buf[16];
         std::snprintf(buf, sizeof(buf), "%.1fs", elapsed_s);
-        set_weight_text(buf);
+        if (std::strcmp(displayed_weight_text_, buf) != 0) {
+            std::snprintf(displayed_weight_text_, sizeof(displayed_weight_text_), "%s", buf);
+            lv_label_set_text(weight_label_, buf);
+        }
     }
 }
 
@@ -673,6 +577,11 @@ void GrindingScreenPortafilter::refresh_visual_accent() {
 
     if (weight_label_) {
         lv_obj_set_style_text_color(weight_label_, lv_color_hex(weight_color), 0);
+    }
+    if (target_label_) {
+        const uint32_t target_color =
+            (completed_ && deviation_shown_) ? weight_color : THEME_COLOR_TEXT_SECONDARY;
+        lv_obj_set_style_text_color(target_label_, lv_color_hex(target_color), 0);
     }
     if (basket_shell_line_) {
         lv_obj_set_style_line_color(basket_shell_line_, lv_color_hex(basket_color), 0);
@@ -759,13 +668,18 @@ void GrindingScreenPortafilter::set_completed(bool completed, bool overshoot, fl
     completed_ = completed;
     overshoot_ = completed ? overshoot : false;
 
-    // A finished weight grind swaps the target for the deviation from it.
-    result_side_text_[0] = '\0';
-    if (completed_ && !time_mode_ && !manual_mode_ && std::isfinite(final_weight_g)) {
-        std::snprintf(result_side_text_, sizeof(result_side_text_), "%+.2fg",
-                      static_cast<double>(final_weight_g - target_weight_g_));
+    // A finished weight grind adds its deviation from the target to the target line.
+    const bool show_deviation =
+        completed_ && !time_mode_ && !manual_mode_ && std::isfinite(final_weight_g);
+    if (show_deviation) {
+        char buf[48];
+        std::snprintf(buf, sizeof(buf), "Target: " SYS_WEIGHT_DISPLAY_FORMAT "  %+.2fg",
+                      target_weight_g_, final_weight_g - target_weight_g_);
+        update_target_weight_text(buf);
+    } else if (deviation_shown_) {
+        update_target_weight(target_weight_g_);
     }
-    refresh_side_label();
+    deviation_shown_ = show_deviation;
     if (just_completed) {
         start_finish_pulse();
     } else if (!completed_) {
@@ -860,7 +774,6 @@ void GrindingScreenPortafilter::reset_chart_data() {
     set_completed(false, false);
     set_status_badge(manual_mode_ ? "GRINDING" : "TARING",
                      manual_mode_ ? 0xFFA726 : 0x29B6F6);
-    update_target_weight_text("");
 
     if (chart_) {
         chart_y_max_ = manual_mode_
@@ -886,7 +799,6 @@ void GrindingScreenPortafilter::set_time_mode(bool enabled) {
 
 void GrindingScreenPortafilter::set_manual_mode(bool enabled) {
     manual_mode_ = enabled;
-    refresh_side_label();
     if (manual_mode_ && chart_) {
         chart_y_max_ = 200;
         lv_chart_set_axis_range(chart_, LV_CHART_AXIS_PRIMARY_Y, 0, chart_y_max_);
