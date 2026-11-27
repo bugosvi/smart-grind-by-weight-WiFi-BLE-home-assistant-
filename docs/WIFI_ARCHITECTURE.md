@@ -150,9 +150,26 @@ load-cell, OTA, phase, safety-timeout and motor guards used by the touchscreen.
 No network action drives the relay or a GPIO directly.
 
 `start` runs the selected Single, Double or Custom profile in its configured
-weight/time mode. `start_manual` uses the firmware's target-free manual mode and
-its independent 30-second cutoff. Tare, profile and mode changes are refused
-while the grinder is not idle.
+weight/time mode, at the dose stored in that profile. A weight-mode `start` may
+instead carry an explicit `"target_weight"` in grams (for example from a Home
+Assistant automation); that override must lie between 4 g and the
+`remote_max_weight_g` safety setting (default 30 g, adjustable up to 120 g) or
+the command is refused with `invalid_weight`. `start_manual` uses the firmware's
+target-free manual mode and its independent 30-second cutoff. Tare, profile and
+mode changes are refused while the grinder is not idle.
+
+When a grind ends in `TIMEOUT`, `grind.last_error` carries the cause
+(`no_beans_or_jam`, `Timeout:<phase>`, `Err: neg wt`, `Err: no wt`,
+`Scale disconnected` or `30s safety limit`). The Studio dashboard translates
+these codes, and the refusal reasons in acknowledgements, into plain-language
+messages. The no-flow watchdog (`no_beans_or_jam`) guards weight-mode grinds
+only; time and manual grinds rely on their own time limits.
+
+Adaptive coast learning commits one observation per shot: from every shot that
+finishes in tolerance, and from a shot that overshoots because the predictive
+stop itself landed above tolerance. In the overshoot case the longer observed
+coast is adopted in full rather than blended, so a grinder whose coast has grown
+(new beans, coarser setting) is corrected on the next shot.
 
 The browser applies a display-only exponential filter and near-zero deadband to
 the 10 Hz flow value. Grinder control and saved session samples retain their
@@ -169,7 +186,8 @@ original precision; completed graphs are replaced with the full recorded trace.
 - `POST /api/v1/settings`: validates a complete form and queues its application
   on the normal UI task. It is refused while grinding.
 - `GET` and `POST /api/v1/safety`: read or update remote cup interlock bounds,
-  remote grind timeout, no-flow watchdog, Wi-Fi TX power cap, and the
+  remote grind timeout, the largest explicit remote dose
+  (`remote_max_weight_g`), no-flow watchdog, Wi-Fi TX power cap, and the
   `adaptive_grind_enabled` / `adaptive_coast_enabled` / `reset_adaptive_coast`
   precision grinding controls (accepts JSON or form-encoded bodies).
 - `POST /api/v1/safety/calibrate-empty`: captures the settled empty-fork raw
@@ -180,13 +198,21 @@ original precision; completed graphs are replaced with the full recorded trace.
   with `tz_offset_min`) schedules, enforces a 6-hour maximum window for AMOLED
   longevity, anchors an offline fallback clock from `client_epoch` if NTP is
   unavailable, wakes a powered-off panel at dimmed brightness with `±3 px`
-  pixel-shift, and optionally auto-clears after the first completed grind.
+  pixel-shift, and optionally auto-clears after the first completed grind. An
+  `immediate` note is switched off automatically once it has been on screen for
+  a cumulative 6 hours. The status JSON includes `preview`
+  (`none`, `pending`, `shown` or `blocked`) describing the last preview request.
+- `POST /api/v1/note/clock`: form fields `epoch` and `tz_offset_min`. The Studio
+  sends the browser's time and UTC offset whenever it loads the note, which
+  re-anchors the fallback clock after a reboot and keeps a daily note aligned
+  with the browser's current UTC offset (daylight saving changes).
 - `GET` and `POST /api/v1/note/image`: read or transactionally replace the
   `280 × 456` RGB565 Morning Note frame (`/note.rgb565`) without modifying the
   user's custom screensaver (`/screensaver.rgb565`).
 - `POST /api/v1/note/preview`: displays the stored Morning Note frame on the
   grinder screen for 10 seconds (configurable up to 30 s) while idle on the
-  Ready screen.
+  Ready screen. If the grinder is grinding or updating, the request is dropped
+  and the note status reports `"preview":"blocked"`.
 - `GET /manifest.webmanifest`: Web App Manifest enabling Add-to-Home-Screen
   installation of the embedded Smart Grind Studio web interface.
 - `POST /api/v1/profile`: selects Single, Double or Custom while idle, persists
