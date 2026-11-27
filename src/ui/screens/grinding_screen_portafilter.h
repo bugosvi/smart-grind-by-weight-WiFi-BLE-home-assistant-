@@ -50,7 +50,7 @@ private:
 
     lv_obj_t* screen_ = nullptr;
     lv_obj_t* profile_label_ = nullptr;
-    lv_obj_t* target_label_ = nullptr;
+    lv_obj_t* info_label_ = nullptr;
     lv_obj_t* stage_ = nullptr;
 
     // Clipped coffee mound widgets strictly inside the 60x30 basket
@@ -62,8 +62,10 @@ private:
     lv_obj_t* basket_shell_line_ = nullptr;
     lv_obj_t* tare_spinner_ = nullptr;
 
-    // Live weight readout + mini-chart + status badge
+    // Live weight readout with the target beside it + mini-chart + status badge
     lv_obj_t* weight_label_ = nullptr;
+    lv_obj_t* side_label_ = nullptr;
+    const lv_font_t* weight_font_ = &lv_font_montserrat_56;
     lv_obj_t* chart_ = nullptr;
     lv_chart_series_t* weight_series_ = nullptr;
     lv_chart_series_t* flow_series_ = nullptr;
@@ -107,7 +109,9 @@ private:
     int16_t tare_angle_ = 0;
 
     char displayed_weight_text_[16]{};
-    char displayed_target_text_[64]{};
+    char displayed_info_text_[64]{};
+    char target_side_text_[20]{};
+    char displayed_side_text_[20]{};
     char displayed_flow_text_[24]{};
     char displayed_status_text_[20]{};
 
@@ -116,6 +120,10 @@ private:
     void update_mound_geometry();
     void refresh_visual_accent();
     void set_status_badge(const char* text, uint32_t color_hex);
+    void set_weight_text(const char* text);
+    void set_target_side_text(const char* text);
+    void refresh_side_label();
+    void layout_weight_row();
     void hide_all_particles();
     void reset_particle(Particle& p, float flow_norm);
     float get_mound_surface_y() const;
