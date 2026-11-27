@@ -312,9 +312,12 @@ public:
         const auto control_lock = lock_control();
         return adaptive_coast_state_;
     }
-    void set_adaptive_grind_enabled(bool enabled);
-    void set_adaptive_coast_enabled(bool enabled);
-    void reset_adaptive_coast();
+    bool set_adaptive_grind_enabled(bool enabled);
+    bool set_adaptive_coast_enabled(bool enabled);
+    bool reset_adaptive_coast();
+    bool configure_adaptive_grind(const bool* algorithm_enabled,
+                                  const bool* coast_enabled,
+                                  bool reset_learned);
     void load_adaptive_coast_state();
     bool save_adaptive_coast_state();
 

@@ -1219,7 +1219,11 @@ void GrindController::process_queued_flash_operations() {
                 }
             }
         }
-        if (adaptive_coast_dirty_ && !is_active()) {
+        const bool motor_session_finished =
+            (phase == GrindPhase::IDLE ||
+             phase == GrindPhase::COMPLETED ||
+             phase == GrindPhase::TIMEOUT);
+        if (adaptive_coast_dirty_ && motor_session_finished) {
             adaptive_coast_dirty_ = false;
             should_save_adaptive_coast = true;
         }
@@ -1507,28 +1511,34 @@ bool GrindController::save_adaptive_coast_state() {
     return ok;
 }
 
-void GrindController::set_adaptive_grind_enabled(bool enabled) {
+bool GrindController::configure_adaptive_grind(const bool* algorithm_enabled,
+                                               const bool* coast_enabled,
+                                               bool reset_learned) {
     {
         const auto control_lock = lock_control();
-        adaptive_coast_state_.algorithm_enabled = enabled;
+        if (algorithm_enabled) {
+            adaptive_coast_state_.algorithm_enabled = *algorithm_enabled;
+        }
+        if (coast_enabled) {
+            adaptive_coast_state_.enabled = *coast_enabled;
+        }
+        if (reset_learned) {
+            adaptive_coast_state_.reset_learned();
+            pending_coast_valid_ = false;
+            adaptive_coast_dirty_ = false;
+        }
     }
-    save_adaptive_coast_state();
+    return save_adaptive_coast_state();
 }
 
-void GrindController::set_adaptive_coast_enabled(bool enabled) {
-    {
-        const auto control_lock = lock_control();
-        adaptive_coast_state_.enabled = enabled;
-    }
-    save_adaptive_coast_state();
+bool GrindController::set_adaptive_grind_enabled(bool enabled) {
+    return configure_adaptive_grind(&enabled, nullptr, false);
 }
 
-void GrindController::reset_adaptive_coast() {
-    {
-        const auto control_lock = lock_control();
-        adaptive_coast_state_.reset_learned();
-        pending_coast_valid_ = false;
-        adaptive_coast_dirty_ = false;
-    }
-    save_adaptive_coast_state();
+bool GrindController::set_adaptive_coast_enabled(bool enabled) {
+    return configure_adaptive_grind(nullptr, &enabled, false);
+}
+
+bool GrindController::reset_adaptive_coast() {
+    return configure_adaptive_grind(nullptr, nullptr, true);
 }

@@ -135,6 +135,27 @@ bool parse_strict_uint32(const String& raw, uint32_t max_value, uint32_t& out) {
     return true;
 }
 
+bool parse_strict_bool(const String& raw, bool& out) {
+    String trimmed = raw;
+    trimmed.trim();
+    trimmed.toLowerCase();
+    if (trimmed == "1" || trimmed == "true" || trimmed == "on") {
+        out = true;
+        return true;
+    }
+    if (trimmed == "0" || trimmed == "false" || trimmed == "off") {
+        out = false;
+        return true;
+    }
+    return false;
+}
+
+struct SafetyRequestBody {
+    char json[512];
+    size_t len;
+    bool overflow;
+};
+
 inline float finite_or_zero(float value) {
     return std::isfinite(value) ? value : 0.0f;
 }
@@ -314,7 +335,7 @@ bool DeviceApi::process_commands() {
                 // Clients may request stricter cup enforcement, never weaken device-level safety.
                 const bool require_cup = safety.require_cup_on_remote ||
                                          (command.has_require_cup && command.require_cup);
-                if (mode == GrindMode::WEIGHT && require_cup) {
+                if (require_cup) {
                     float gross_g = 0.0f;
                     float range_g = 0.0f;
                     const auto interlock = evaluate_live_cup_interlock(&gross_g, &range_g);
@@ -339,17 +360,37 @@ bool DeviceApi::process_commands() {
                 send_ack(command, "start", started, started ? "grind started" : "grind could not start");
                 break;
             }
-            case CommandAction::START_MANUAL:
+            case CommandAction::START_MANUAL: {
                 if (device_web_server.is_ota_active() || device_web_server.is_ota_preparing()) {
                     send_ack(command, "start_manual", false, "firmware update is active");
-                } else if (grind_controller_->get_phase() != GrindPhase::IDLE) {
-                    send_ack(command, "start_manual", false, "grinder is not idle");
-                } else {
-                    const bool started = grind_controller_->start_grind(0.0f, 0, GrindMode::MANUAL);
-                    send_ack(command, "start_manual", started,
-                             started ? "manual grind started" : "grind could not start");
+                    break;
                 }
+                if (grind_controller_->get_phase() != GrindPhase::IDLE) {
+                    send_ack(command, "start_manual", false, "grinder is not idle");
+                    break;
+                }
+                const auto safety = get_safety_config();
+                const bool require_cup = safety.require_cup_on_remote ||
+                                         (command.has_require_cup && command.require_cup);
+                if (require_cup) {
+                    float gross_g = 0.0f;
+                    float range_g = 0.0f;
+                    const auto interlock = evaluate_live_cup_interlock(&gross_g, &range_g);
+                    if (interlock != remote_safety::CupInterlockStatus::OK) {
+                        LOG_BLE("[SAFETY] Remote manual start rejected: %s (gross=%.1fg, range=%.2fg)\n",
+                                remote_safety::cup_interlock_reason(interlock), gross_g, range_g);
+                        send_ack(command, "start_manual", false, remote_safety::cup_interlock_reason(interlock));
+                        break;
+                    }
+                }
+                RemoteGrindOptions remote_opts;
+                remote_opts.is_remote = true;
+                remote_opts.max_grind_time_s = safety.remote_max_grind_time_s;
+                const bool started = grind_controller_->start_grind(0.0f, 0, GrindMode::MANUAL, remote_opts);
+                send_ack(command, "start_manual", started,
+                         started ? "manual grind started" : "grind could not start");
                 break;
+            }
             case CommandAction::STOP:
                 if (!grind_controller_->is_active()) {
                     send_ack(command, "stop", false, "grinder is not active");
@@ -551,6 +592,15 @@ void DeviceApi::queue_command(uint32_t client_id, const uint8_t* data, size_t le
     } else if (contains_json_string(json, "action", "start_manual")) {
         action = "start_manual";
         command.action = CommandAction::START_MANUAL;
+        if (has_json_key(json, "require_cup")) {
+            bool parsed_require_cup = true;
+            if (!extract_json_bool(json, "require_cup", parsed_require_cup)) {
+                send_ack(command, action, false, "invalid_require_cup");
+                return;
+            }
+            command.has_require_cup = true;
+            command.require_cup = parsed_require_cup;
+        }
     } else if (contains_json_string(json, "action", "stop")) {
         action = "stop";
         command.action = CommandAction::STOP;
@@ -596,91 +646,173 @@ void DeviceApi::configure_settings_routes(AsyncWebServer* server) {
         response->addHeader("Cache-Control", "no-store");
         request->send(response);
     });
-    server->on(AsyncURIMatcher::exact("/api/v1/safety"), HTTP_POST, [this](AsyncWebServerRequest* request) {
-        if (!websocket_origin_allowed(request)) {
-            request->send(403, "application/json", "{\"error\":\"Request origin is not allowed\"}");
-            return;
-        }
-        if (grind_controller_ && grind_controller_->is_active()) {
-            request->send(409, "application/json", "{\"error\":\"Grinder must be idle to change safety settings\"}");
-            return;
-        }
-        remote_safety::RemoteSafetyConfig updated = get_safety_config();
-        if (request->hasParam("require_cup_on_remote", true)) {
-            updated.require_cup_on_remote = form_bool(request->getParam("require_cup_on_remote", true)->value());
-        }
-        if (request->hasParam("cup_min_weight_g", true)) {
-            if (!parse_strict_float(request->getParam("cup_min_weight_g", true)->value(), updated.cup_min_weight_g)) {
-                request->send(400, "application/json", "{\"error\":\"Invalid cup_min_weight_g\"}");
+    server->on(
+        AsyncURIMatcher::exact("/api/v1/safety"), HTTP_POST,
+        [this](AsyncWebServerRequest* request) {
+            if (!websocket_origin_allowed(request)) {
+                request->send(403, "application/json", "{\"error\":\"Request origin is not allowed\"}");
                 return;
             }
-        }
-        if (request->hasParam("cup_max_weight_g", true)) {
-            if (!parse_strict_float(request->getParam("cup_max_weight_g", true)->value(), updated.cup_max_weight_g)) {
-                request->send(400, "application/json", "{\"error\":\"Invalid cup_max_weight_g\"}");
+            if (grind_controller_ && grind_controller_->is_active()) {
+                request->send(409, "application/json", "{\"error\":\"Grinder must be idle to change safety settings\"}");
                 return;
             }
-        }
-        if (request->hasParam("remote_max_grind_time_s", true)) {
-            uint32_t parsed = 0;
-            if (!parse_strict_uint32(request->getParam("remote_max_grind_time_s", true)->value(), UINT16_MAX, parsed)) {
-                request->send(400, "application/json", "{\"error\":\"Invalid remote_max_grind_time_s\"}");
+
+            const auto* raw_body = static_cast<const SafetyRequestBody*>(request->_tempObject);
+            if (raw_body && raw_body->overflow) {
+                request->send(400, "application/json", "{\"error\":\"Safety payload is too large\"}");
                 return;
             }
-            updated.remote_max_grind_time_s = static_cast<uint16_t>(parsed);
-        }
-        if (request->hasParam("no_flow_timeout_ms", true)) {
-            uint32_t parsed = 0;
-            if (!parse_strict_uint32(request->getParam("no_flow_timeout_ms", true)->value(), UINT16_MAX, parsed)) {
-                request->send(400, "application/json", "{\"error\":\"Invalid no_flow_timeout_ms\"}");
+
+            remote_safety::SafetyPatch patch{};
+            if (raw_body && raw_body->len > 0) {
+                if (!remote_safety::parse_safety_json_patch(raw_body->json, patch)) {
+                    request->send(400, "application/json", "{\"error\":\"Invalid JSON safety payload\"}");
+                    return;
+                }
+            } else if (request->params() == 1 && request->getParam(0)->isPost() &&
+                       request->getParam(0)->value().isEmpty()) {
+                // Support curl -d '{"...": ...}' even if caller omitted Content-Type: application/json
+                String candidate = request->getParam(0)->name();
+                candidate.trim();
+                if (!candidate.startsWith("{") ||
+                    !remote_safety::parse_safety_json_patch(candidate.c_str(), patch)) {
+                    request->send(400, "application/json", "{\"error\":\"Invalid safety payload\"}");
+                    return;
+                }
+            } else {
+                const size_t param_count = request->params();
+                for (size_t i = 0; i < param_count; ++i) {
+                    const auto* param = request->getParam(i);
+                    if (!param || !param->isPost()) continue;
+                    const String& key = param->name();
+                    const String& val = param->value();
+                    if (key == "require_cup_on_remote") {
+                        if (!parse_strict_bool(val, patch.require_cup_on_remote)) {
+                            request->send(400, "application/json", "{\"error\":\"Invalid require_cup_on_remote\"}");
+                            return;
+                        }
+                        patch.has_require_cup_on_remote = true;
+                    } else if (key == "cup_min_weight_g") {
+                        if (!parse_strict_float(val, patch.cup_min_weight_g)) {
+                            request->send(400, "application/json", "{\"error\":\"Invalid cup_min_weight_g\"}");
+                            return;
+                        }
+                        patch.has_cup_min_weight_g = true;
+                    } else if (key == "cup_max_weight_g") {
+                        if (!parse_strict_float(val, patch.cup_max_weight_g)) {
+                            request->send(400, "application/json", "{\"error\":\"Invalid cup_max_weight_g\"}");
+                            return;
+                        }
+                        patch.has_cup_max_weight_g = true;
+                    } else if (key == "remote_max_grind_time_s") {
+                        uint32_t parsed = 0;
+                        if (!parse_strict_uint32(val, UINT16_MAX, parsed)) {
+                            request->send(400, "application/json", "{\"error\":\"Invalid remote_max_grind_time_s\"}");
+                            return;
+                        }
+                        patch.remote_max_grind_time_s = static_cast<uint16_t>(parsed);
+                        patch.has_remote_max_grind_time_s = true;
+                    } else if (key == "no_flow_timeout_ms") {
+                        uint32_t parsed = 0;
+                        if (!parse_strict_uint32(val, UINT16_MAX, parsed)) {
+                            request->send(400, "application/json", "{\"error\":\"Invalid no_flow_timeout_ms\"}");
+                            return;
+                        }
+                        patch.no_flow_timeout_ms = static_cast<uint16_t>(parsed);
+                        patch.has_no_flow_timeout_ms = true;
+                    } else if (key == "no_flow_min_weight_g") {
+                        if (!parse_strict_float(val, patch.no_flow_min_weight_g)) {
+                            request->send(400, "application/json", "{\"error\":\"Invalid no_flow_min_weight_g\"}");
+                            return;
+                        }
+                        patch.has_no_flow_min_weight_g = true;
+                    } else if (key == "wifi_tx_power_dbm") {
+                        uint32_t parsed = 0;
+                        if (!parse_strict_uint32(val, 255U, parsed)) {
+                            request->send(400, "application/json", "{\"error\":\"Invalid wifi_tx_power_dbm\"}");
+                            return;
+                        }
+                        patch.wifi_tx_power_dbm = static_cast<uint8_t>(parsed);
+                        patch.has_wifi_tx_power_dbm = true;
+                    } else if (key == "adaptive_grind_enabled") {
+                        if (!parse_strict_bool(val, patch.adaptive_grind_enabled)) {
+                            request->send(400, "application/json", "{\"error\":\"Invalid adaptive_grind_enabled\"}");
+                            return;
+                        }
+                        patch.has_adaptive_grind_enabled = true;
+                    } else if (key == "adaptive_coast_enabled") {
+                        if (!parse_strict_bool(val, patch.adaptive_coast_enabled)) {
+                            request->send(400, "application/json", "{\"error\":\"Invalid adaptive_coast_enabled\"}");
+                            return;
+                        }
+                        patch.has_adaptive_coast_enabled = true;
+                    } else if (key == "reset_adaptive_coast") {
+                        if (!parse_strict_bool(val, patch.reset_adaptive_coast)) {
+                            request->send(400, "application/json", "{\"error\":\"Invalid reset_adaptive_coast\"}");
+                            return;
+                        }
+                        patch.has_reset_adaptive_coast = true;
+                    } else {
+                        request->send(400, "application/json", "{\"error\":\"Unknown safety field\"}");
+                        return;
+                    }
+                }
+                if (!patch.any_field()) {
+                    request->send(400, "application/json", "{\"error\":\"No safety fields provided\"}");
+                    return;
+                }
+            }
+
+            if (patch.any_safety_config_field()) {
+                remote_safety::RemoteSafetyConfig updated = get_safety_config();
+                patch.apply_to_config(updated);
+                if (updated.require_cup_on_remote && !updated.empty_holder_calibrated) {
+                    request->send(400, "application/json", "{\"error\":\"Calibrate empty holder before enabling require_cup_on_remote\"}");
+                    return;
+                }
+                if (!remote_safety::validate_safety_config(updated)) {
+                    request->send(400, "application/json", "{\"error\":\"Invalid safety parameters\"}");
+                    return;
+                }
+                if (!save_safety_config(updated)) {
+                    request->send(500, "application/json", "{\"error\":\"Failed to persist safety settings\"}");
+                    return;
+                }
+            }
+
+            if (patch.any_adaptive_field() && grind_controller_) {
+                const bool* algo_ptr = patch.has_adaptive_grind_enabled ? &patch.adaptive_grind_enabled : nullptr;
+                const bool* coast_ptr = patch.has_adaptive_coast_enabled ? &patch.adaptive_coast_enabled : nullptr;
+                const bool reset_learned = patch.has_reset_adaptive_coast && patch.reset_adaptive_coast;
+                if ((algo_ptr || coast_ptr || reset_learned) &&
+                    !grind_controller_->configure_adaptive_grind(algo_ptr, coast_ptr, reset_learned)) {
+                    request->send(500, "application/json", "{\"error\":\"Failed to persist adaptive grind settings\"}");
+                    return;
+                }
+            }
+
+            AsyncWebServerResponse* response = request->beginResponse(200, "application/json", safety_json());
+            response->addHeader("Cache-Control", "no-store");
+            request->send(response);
+        },
+        nullptr,
+        [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+            if (!request || !data) return;
+            auto* body = static_cast<SafetyRequestBody*>(request->_tempObject);
+            if (index == 0 && !body) {
+                body = static_cast<SafetyRequestBody*>(calloc(1, sizeof(SafetyRequestBody)));
+                request->_tempObject = body;
+            }
+            if (!body) return;
+            if (total >= sizeof(body->json) || index + len >= sizeof(body->json)) {
+                body->overflow = true;
                 return;
             }
-            updated.no_flow_timeout_ms = static_cast<uint16_t>(parsed);
-        }
-        if (request->hasParam("no_flow_min_weight_g", true)) {
-            if (!parse_strict_float(request->getParam("no_flow_min_weight_g", true)->value(), updated.no_flow_min_weight_g)) {
-                request->send(400, "application/json", "{\"error\":\"Invalid no_flow_min_weight_g\"}");
-                return;
-            }
-        }
-        if (request->hasParam("wifi_tx_power_dbm", true)) {
-            uint32_t parsed = 0;
-            if (!parse_strict_uint32(request->getParam("wifi_tx_power_dbm", true)->value(), 255, parsed)) {
-                request->send(400, "application/json", "{\"error\":\"Invalid wifi_tx_power_dbm\"}");
-                return;
-            }
-            updated.wifi_tx_power_dbm = static_cast<uint8_t>(parsed);
-        }
-        if (updated.require_cup_on_remote && !updated.empty_holder_calibrated) {
-            request->send(400, "application/json", "{\"error\":\"Calibrate empty holder before enabling require_cup_on_remote\"}");
-            return;
-        }
-        if (!remote_safety::validate_safety_config(updated)) {
-            request->send(400, "application/json", "{\"error\":\"Invalid safety parameters\"}");
-            return;
-        }
-        if (!save_safety_config(updated)) {
-            request->send(500, "application/json", "{\"error\":\"Failed to persist safety settings\"}");
-            return;
-        }
-        if (grind_controller_) {
-            if (request->hasParam("adaptive_grind_enabled", true)) {
-                grind_controller_->set_adaptive_grind_enabled(
-                    form_bool(request->getParam("adaptive_grind_enabled", true)->value()));
-            }
-            if (request->hasParam("adaptive_coast_enabled", true)) {
-                grind_controller_->set_adaptive_coast_enabled(
-                    form_bool(request->getParam("adaptive_coast_enabled", true)->value()));
-            }
-            if (request->hasParam("reset_adaptive_coast", true) &&
-                form_bool(request->getParam("reset_adaptive_coast", true)->value())) {
-                grind_controller_->reset_adaptive_coast();
-            }
-        }
-        AsyncWebServerResponse* response = request->beginResponse(200, "application/json", safety_json());
-        response->addHeader("Cache-Control", "no-store");
-        request->send(response);
-    });
+            memcpy(body->json + index, data, len);
+            body->len = index + len;
+            body->json[body->len] = '\0';
+        });
     server->on(AsyncURIMatcher::exact("/api/v1/safety/calibrate-empty"), HTTP_POST, [this](AsyncWebServerRequest* request) {
         if (!websocket_origin_allowed(request)) {
             request->send(403, "application/json", "{\"error\":\"Request origin is not allowed\"}");
@@ -694,7 +826,8 @@ void DeviceApi::configure_settings_routes(AsyncWebServer* server) {
                 return;
             }
             WeightSensor* sensor = hardware_->get_weight_sensor();
-            if (!sensor || sensor->has_hardware_fault() || !sensor->has_recent_sample()) {
+            if (!sensor || sensor->has_hardware_fault() || !sensor->has_recent_sample() ||
+                !sensor->has_valid_tare() || sensor->is_tare_in_progress()) {
                 request->send(503, "application/json", "{\"error\":\"Load cell is not ready\"}");
                 return;
             }
@@ -1187,18 +1320,20 @@ remote_safety::CupInterlockStatus DeviceApi::evaluate_live_cup_interlock(
     float* gross_weight_out, float* range_out) const {
     const auto cfg = get_safety_config();
     WeightSensor* sensor = hardware_ ? hardware_->get_weight_sensor() : nullptr;
-    if (!sensor || sensor->has_hardware_fault() || !sensor->has_recent_sample()) {
+    if (!sensor || sensor->has_hardware_fault() || !sensor->has_recent_sample() ||
+        !sensor->has_valid_tare() || sensor->is_tare_in_progress()) {
         if (gross_weight_out) *gross_weight_out = 0.0f;
         if (range_out) *range_out = 999.0f;
         return remote_safety::CupInterlockStatus::SCALE_UNSTABLE;
     }
-    const int32_t raw_smoothed = sensor->get_raw_adc_smoothed(500);
-    const int32_t ref_raw = cfg.empty_holder_calibrated ? cfg.empty_holder_raw : sensor->get_zero_offset();
-    const float gross_g = remote_safety::gross_weight_from_raw(raw_smoothed, ref_raw, sensor->get_calibration_factor());
     const float range_g = sensor->get_weight_range(500);
+    const float gross_g = cfg.empty_holder_calibrated
+        ? remote_safety::gross_weight_from_raw(
+              sensor->get_raw_adc_smoothed(500), cfg.empty_holder_raw, sensor->get_calibration_factor())
+        : 0.0f;
     if (gross_weight_out) *gross_weight_out = gross_g;
     if (range_out) *range_out = range_g;
-    return remote_safety::evaluate_cup_interlock(gross_g, range_g, cfg);
+    return remote_safety::evaluate_calibrated_cup_interlock(gross_g, range_g, cfg);
 }
 
 String DeviceApi::safety_json() {

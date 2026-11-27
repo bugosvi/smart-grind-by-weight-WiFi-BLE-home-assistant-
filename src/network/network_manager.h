@@ -23,6 +23,7 @@ public:
     void init(Preferences* preferences);
     void update();
     void set_grind_active(bool active) { grind_active_.store(active); }
+    bool is_grind_active() const { return grind_active_.load(); }
 
     bool set_enabled(bool enabled);
     bool set_credentials(const String& ssid, const String& password);

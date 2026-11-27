@@ -96,5 +96,50 @@ int main() {
     assert(!check_no_flow_watchdog(4000, 0.2f, true, 3000, 0.5f));
     assert(!check_no_flow_watchdog(5000, 0.0f, false, 0, 0.5f));  // disabled
 
+    // 10. Calibrated cup interlock rejects uncalibrated empty holder explicitly
+    RemoteSafetyConfig uncal_cfg = cup_cfg;
+    uncal_cfg.empty_holder_calibrated = false;
+    assert(evaluate_calibrated_cup_interlock(0.0f, 0.05f, uncal_cfg) ==
+           CupInterlockStatus::EMPTY_HOLDER_UNCALIBRATED);
+    assert(std::strcmp(cup_interlock_reason(CupInterlockStatus::EMPTY_HOLDER_UNCALIBRATED),
+                       "empty_holder_uncalibrated") == 0);
+    // Unstable scale still takes precedence over calibration state
+    assert(evaluate_calibrated_cup_interlock(0.0f, 1.5f, uncal_cfg) ==
+           CupInterlockStatus::SCALE_UNSTABLE);
+    uncal_cfg.empty_holder_calibrated = true;
+    assert(evaluate_calibrated_cup_interlock(100.0f, 0.05f, uncal_cfg) ==
+           CupInterlockStatus::OK);
+
+    // 11. POST /api/v1/safety JSON patch parser (Kill-Switch & multi-field patches)
+    SafetyPatch patch{};
+    assert(parse_safety_json_patch("{\"adaptive_grind_enabled\": false}", patch));
+    assert(patch.has_adaptive_grind_enabled && !patch.adaptive_grind_enabled);
+    assert(!patch.any_safety_config_field() && patch.any_adaptive_field());
+
+    assert(parse_safety_json_patch(
+        "{\n"
+        "  \"require_cup_on_remote\": true,\n"
+        "  \"cup_min_weight_g\": 385.5,\n"
+        "  \"cup_max_weight_g\": 430,\n"
+        "  \"wifi_tx_power_dbm\": 13,\n"
+        "  \"adaptive_coast_enabled\": true,\n"
+        "  \"reset_adaptive_coast\": true\n"
+        "}\n",
+        patch));
+    assert(patch.has_require_cup_on_remote && patch.require_cup_on_remote);
+    assert(patch.has_cup_min_weight_g && std::fabs(patch.cup_min_weight_g - 385.5f) < 0.01f);
+    assert(patch.has_cup_max_weight_g && std::fabs(patch.cup_max_weight_g - 430.0f) < 0.01f);
+    assert(patch.has_wifi_tx_power_dbm && patch.wifi_tx_power_dbm == 13);
+    assert(patch.has_adaptive_coast_enabled && patch.adaptive_coast_enabled);
+    assert(patch.has_reset_adaptive_coast && patch.reset_adaptive_coast);
+
+    // Malformed, empty, or misspelled JSON keys must be rejected (never silent 200 no-op)
+    assert(!parse_safety_json_patch("{}", patch));
+    assert(!parse_safety_json_patch("{\"adaptive_grind_enable\": false}", patch));
+    assert(!parse_safety_json_patch("{\"adaptive_grind_enabled\": \"false\"}", patch));
+    assert(!parse_safety_json_patch("{\"wifi_tx_power_dbm\": -5}", patch));
+    assert(!parse_safety_json_patch("{\"wifi_tx_power_dbm\": 300}", patch));
+    assert(!parse_safety_json_patch("{\"adaptive_grind_enabled\": false,}", patch));
+
     return 0;
 }

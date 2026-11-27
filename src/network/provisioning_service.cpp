@@ -89,8 +89,9 @@ void ProvisioningService::update() {
     update_improv_serial();
 
     const NetworkState state = network_manager.state();
-    if (!active_ && (state == NetworkState::WIFI_NO_CREDENTIALS ||
-                     state == NetworkState::WIFI_SETUP_REQUIRED)) {
+    if (!active_ && !network_manager.is_grind_active() &&
+        (state == NetworkState::WIFI_NO_CREDENTIALS ||
+         state == NetworkState::WIFI_SETUP_REQUIRED)) {
         start();
     }
 
