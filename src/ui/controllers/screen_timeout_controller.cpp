@@ -42,6 +42,70 @@ void ScreenTimeoutController::refresh_morning_note_if_needed(uint32_t now_ms) {
     last_note_check_ms_ = now_ms;
 }
 
+void ScreenTimeoutController::show_idle_screensaver() {
+    if (screensaver_controller_ &&
+        screensaver_controller_->is_sleep_enabled() &&
+        screensaver_controller_->has_image()) {
+        screensaver_controller_->show();
+    }
+}
+
+bool ScreenTimeoutController::try_show_due_morning_note(uint32_t now_ms) {
+    constexpr uint32_t kLoadRetryIntervalMs = 30000;
+
+    if (screensaver_controller_->is_showing_morning_note() &&
+        active_note_revision_ == last_seen_note_revision_) {
+        return true;
+    }
+    const bool backing_off = note_load_failed_revision_ == last_seen_note_revision_ &&
+                             now_ms - note_load_failed_at_ms_ < kLoadRetryIntervalMs;
+    if (backing_off) {
+        return false;
+    }
+
+    if (screensaver_controller_->is_visible()) {
+        screensaver_controller_->hide();
+    }
+    if (screensaver_controller_->show_morning_note(true)) {
+        active_note_revision_ = last_seen_note_revision_;
+        note_load_failed_revision_ = 0;
+        LOG_BLE("[NOTE] Displaying morning note overlay (dimmed, pixel-shift ON)\n");
+        return true;
+    }
+
+    note_load_failed_revision_ = last_seen_note_revision_;
+    note_load_failed_at_ms_ = now_ms;
+    LOG_BLE("[NOTE] Could not load morning note overlay; retrying in %lus\n",
+            static_cast<unsigned long>(kLoadRetryIntervalMs / 1000U));
+    // The regular screensaver was removed for the attempt; put it back.
+    if (screen_dimmed_ && !panel_off_) {
+        show_idle_screensaver();
+    }
+    return false;
+}
+
+void ScreenTimeoutController::account_morning_note_display(uint32_t now_ms) {
+    constexpr uint32_t kMaxContinuousGapMs = 2000;
+
+    if (note_display_revision_ != active_note_revision_) {
+        note_display_revision_ = active_note_revision_;
+        note_display_ms_ = 0;
+        note_display_tick_ms_ = now_ms;
+        return;
+    }
+    const uint32_t since_last_ms = now_ms - note_display_tick_ms_;
+    note_display_tick_ms_ = now_ms;
+    // A longer gap means the note left the screen in between (activity, grind, preview).
+    if (since_last_ms > kMaxContinuousGapMs) {
+        return;
+    }
+    note_display_ms_ += since_last_ms;
+    if (note_display_ms_ / 1000U >= morning_note::kMaxImmediateDisplaySeconds) {
+        morning_note_store.expire_immediate_note(note_display_ms_ / 1000U);
+        note_display_ms_ = 0;
+    }
+}
+
 void ScreenTimeoutController::update() {
     if (!ui_manager_) {
         return;
@@ -58,6 +122,11 @@ void ScreenTimeoutController::update() {
     }
 
     if (is_protected_state()) {
+        // A preview must not interrupt a grind or firmware update, nor pop up
+        // unexpectedly once it ends.
+        if (morning_note_store.consume_preview_request() > 0) {
+            morning_note_store.report_preview_outcome(false);
+        }
         preview_active_ = false;
         restore_normal_display(display);
         return;
@@ -88,18 +157,22 @@ void ScreenTimeoutController::update() {
     if (const uint16_t preview_s = morning_note_store.consume_preview_request(); preview_s > 0) {
         const bool on_ready = ui_manager_->state_machine &&
                               ui_manager_->state_machine->is_state(UIState::READY);
+        bool shown = false;
         if (on_ready && screensaver_controller_) {
             restore_normal_display(display);
-            if (screensaver_controller_->show_morning_note(false)) {
-                preview_active_ = true;
-                preview_started_at_ms_ = now;
-                preview_end_ms_ = now + static_cast<uint32_t>(preview_s) * 1000U;
-                preview_start_weight_ms_ = last_weight_activity_ms_;
-                active_note_revision_ = last_seen_note_revision_;
-                LOG_BLE("[NOTE] Previewing morning note for %us\n", static_cast<unsigned>(preview_s));
-                return;
-            }
+            shown = screensaver_controller_->show_morning_note(false);
         }
+        morning_note_store.report_preview_outcome(shown);
+        if (shown) {
+            preview_active_ = true;
+            preview_started_at_ms_ = now;
+            preview_end_ms_ = now + static_cast<uint32_t>(preview_s) * 1000U;
+            preview_start_weight_ms_ = last_weight_activity_ms_;
+            active_note_revision_ = last_seen_note_revision_;
+            LOG_BLE("[NOTE] Previewing morning note for %us\n", static_cast<unsigned>(preview_s));
+            return;
+        }
+        LOG_BLE("[NOTE] Preview skipped: grinder is not on the home screen\n");
     }
 
     if (preview_active_) {
@@ -143,40 +216,24 @@ void ScreenTimeoutController::update() {
     // overnight powered-off AMOLED panel at dimmed brightness with pixel-shift).
     // Load the note overlay before enabling panel power so waking from sleep
     // never flashes ReadyScreen or strands the panel on if loading fails.
-    if (note_due_cached_ && screensaver_controller_) {
-        bool note_ready =
-            screensaver_controller_->is_showing_morning_note() &&
-            active_note_revision_ == last_seen_note_revision_;
-        if (!note_ready) {
-            if (screensaver_controller_->is_visible()) {
-                screensaver_controller_->hide();
-            }
-            if (screensaver_controller_->show_morning_note(true)) {
-                active_note_revision_ = last_seen_note_revision_;
-                note_ready = true;
-                LOG_BLE("[NOTE] Displaying morning note overlay (dimmed, pixel-shift ON)\n");
-            }
+    if (note_due_cached_ && screensaver_controller_ && try_show_due_morning_note(now)) {
+        account_morning_note_display(now);
+        display->set_brightness(dimmed_brightness());
+        screen_dimmed_ = true;
+        if (panel_off_ || !display->is_panel_powered_on()) {
+            display->set_panel_power(true);
+            panel_off_ = false;
+            LOG_BLE("[NOTE] Woke AMOLED panel for scheduled morning note\n");
         }
-        if (note_ready) {
-            display->set_brightness(dimmed_brightness());
-            screen_dimmed_ = true;
-            if (panel_off_ || !display->is_panel_powered_on()) {
-                display->set_panel_power(true);
-                panel_off_ = false;
-                LOG_BLE("[NOTE] Woke AMOLED panel for scheduled morning note\n");
-            }
-            return;
-        }
+        return;
     }
 
     // Note window ended or was cleared while idle: exit morning note cleanly.
     if (screensaver_controller_ && screensaver_controller_->is_showing_morning_note()) {
         screensaver_controller_->hide();
         active_note_revision_ = 0;
-        if (!should_turn_off &&
-            screensaver_controller_->is_sleep_enabled() &&
-            screensaver_controller_->has_image()) {
-            screensaver_controller_->show();
+        if (!should_turn_off) {
+            show_idle_screensaver();
         }
     }
 
@@ -184,11 +241,7 @@ void ScreenTimeoutController::update() {
         if (!screen_dimmed_) {
             display->set_brightness(dimmed_brightness());
             screen_dimmed_ = true;
-            if (screensaver_controller_ &&
-                screensaver_controller_->is_sleep_enabled() &&
-                screensaver_controller_->has_image()) {
-                screensaver_controller_->show();
-            }
+            show_idle_screensaver();
         }
         display->set_panel_power(false);
         panel_off_ = true;
@@ -198,13 +251,7 @@ void ScreenTimeoutController::update() {
     } else if (should_dim && !screen_dimmed_) {
         display->set_brightness(dimmed_brightness());
         screen_dimmed_ = true;
-
-        // Show screensaver image if enabled
-        if (screensaver_controller_ &&
-            screensaver_controller_->is_sleep_enabled() &&
-            screensaver_controller_->has_image()) {
-            screensaver_controller_->show();
-        }
+        show_idle_screensaver();
         LOG_BLE("[DISPLAY] Idle timeout reached after %lus; dimmed with screensaver=%s\n",
                 static_cast<unsigned long>(timing_settings_.idle_timeout_s),
                 screensaver_controller_ && screensaver_controller_->is_visible() ? "ON" : "OFF");

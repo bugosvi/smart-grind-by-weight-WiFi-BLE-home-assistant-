@@ -17,6 +17,9 @@ namespace morning_note {
 inline constexpr uint64_t kMinValidEpoch = 1700000000ULL;  // 2023-11-14 UTC
 inline constexpr uint64_t kMaxWindowSeconds = 6ULL * 3600ULL;
 inline constexpr uint16_t kMaxWindowMinutes = 360U;
+// An IMMEDIATE note has no schedule window, so its total time on screen is
+// bounded instead, by the same limit a scheduled window gets.
+inline constexpr uint32_t kMaxImmediateDisplaySeconds = static_cast<uint32_t>(kMaxWindowSeconds);
 inline constexpr uint16_t kMinutesPerDay = 1440U;
 inline constexpr int16_t kMinTzOffsetMin = -720;
 inline constexpr int16_t kMaxTzOffsetMin = 840;
@@ -214,6 +217,19 @@ inline bool apply_grind_completion(MorningNoteConfig& cfg,
             cfg.dismissed_day = eval.active_window_day;
             return true;
         }
+        return false;
+    }
+    cfg.enabled = false;
+    return true;
+}
+
+// Disarms an IMMEDIATE note once it has spent its on-screen budget, so a note
+// nobody clears (no grind, clear_on_grind off, owner away) cannot keep a static
+// frame on the AMOLED indefinitely. Scheduled modes are bounded by their window.
+// Returns true if cfg changed and should be persisted.
+inline bool apply_immediate_display_limit(MorningNoteConfig& cfg, uint32_t displayed_seconds) {
+    if (!cfg.enabled || cfg.mode != ScheduleMode::IMMEDIATE ||
+        displayed_seconds < kMaxImmediateDisplaySeconds) {
         return false;
     }
     cfg.enabled = false;

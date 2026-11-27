@@ -28,6 +28,9 @@ public:
 private:
     void refresh_settings_if_needed(uint32_t now_ms);
     void refresh_morning_note_if_needed(uint32_t now_ms);
+    bool try_show_due_morning_note(uint32_t now_ms);
+    void account_morning_note_display(uint32_t now_ms);
+    void show_idle_screensaver();
     float dimmed_brightness() const;
     void restore_normal_display(DisplayManager* display);
     bool is_protected_state() const;
@@ -41,6 +44,14 @@ private:
     uint32_t last_note_check_ms_ = 0;
     uint32_t last_seen_note_revision_ = 0;
     uint32_t active_note_revision_ = 0;
+    // On-screen time of the current note revision (enforces the show-now limit)
+    uint32_t note_display_revision_ = 0;
+    uint32_t note_display_ms_ = 0;
+    uint32_t note_display_tick_ms_ = 0;
+    // Back-off after a failed overlay load so a persistent failure cannot
+    // reallocate and re-read the 255 KB frame on every UI tick.
+    uint32_t note_load_failed_revision_ = 0;
+    uint32_t note_load_failed_at_ms_ = 0;
     uint32_t preview_started_at_ms_ = 0;
     uint32_t preview_end_ms_ = 0;
     uint32_t preview_start_weight_ms_ = 0;

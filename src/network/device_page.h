@@ -391,6 +391,7 @@ textarea{resize:vertical;min-height:92px;line-height:1.45}
             <button type="button" data-note-mode="date">Pick date</button>
             <button type="button" data-note-mode="daily">Every morning</button>
           </div>
+          <p id="noteModeHint" class="sub" style="margin:-4px 0 14px"></p>
 
           <div id="noteWindowFields" class="formgrid">
             <label class="field" id="noteDateField" hidden>
@@ -1044,12 +1045,20 @@ function setNoteTheme(theme){
   document.querySelectorAll('[data-note-theme]').forEach(b=>b.classList.toggle('selected',b.dataset.noteTheme===theme));
   renderNoteCanvas();
 }
+const NOTE_MODE_HINTS={
+  tomorrow:'Appears tomorrow between the start and end time, even if the screen is asleep.',
+  immediate:'Appears as soon as the grinder is idle and stays until the next grind, for at most 6 hours of screen time. To greet someone tomorrow, use Tomorrow morning.',
+  date:'Appears once, on the date you pick, between the start and end time.',
+  daily:'Appears every day between the start and end time until you clear it.'
+};
 function setNoteMode(mode){
   state.noteMode=mode;
   document.querySelectorAll('[data-note-mode]').forEach(b=>b.classList.toggle('active',b.dataset.noteMode===mode));
   $('noteWindowFields').hidden=(mode==='immediate');
   $('noteDateField').hidden=(mode!=='date');
+  $('noteModeHint').textContent=NOTE_MODE_HINTS[mode]||'';
 }
+setNoteMode(state.noteMode);
 document.querySelectorAll('[data-note-theme]').forEach(b=>b.onclick=()=>setNoteTheme(b.dataset.noteTheme));
 document.querySelectorAll('[data-note-mode]').forEach(b=>b.onclick=()=>setNoteMode(b.dataset.noteMode));
 ['noteHeadline','noteBody','noteSignature'].forEach(id=>$(id).addEventListener('input',renderNoteCanvas));
@@ -1155,7 +1164,7 @@ function renderNoteStatus(n){
     pill.className=n.due_now?'pill ok':'pill action';
     txt.textContent=n.due_now?'Showing on screen':'Scheduled';
     let desc='';
-    if(n.mode==='immediate')desc='Shows whenever the grinder is idle.';
+    if(n.mode==='immediate')desc='Shows whenever the grinder is idle (up to 6 h of screen time)';
     else if(n.mode==='daily')desc=`Daily ${fmtMin(n.start_min)} – ${fmtMin(n.end_min)}`;
     else desc=`${new Date(n.start_epoch*1000).toLocaleString([],{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})} – ${new Date(n.end_epoch*1000).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}`;
     if(n.clear_on_grind)desc+=' · clears after first grind';
@@ -1165,10 +1174,21 @@ function renderNoteStatus(n){
     banner.classList.add('show');
   }
 }
+// Keeps a scheduled note on local time: gives the grinder this device's clock
+// when it has none, and its current UTC offset after a daylight-saving change.
+async function syncNoteClock(n){
+  const tz=-new Date().getTimezoneOffset();
+  const scheduled=n.enabled&&n.mode!=='immediate';
+  if(!scheduled||(n.clock_synced&&(n.mode!=='daily'||n.tz_offset_min===tz)))return n;
+  try{
+    return await api('/api/v1/note/clock',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},
+      body:new URLSearchParams({epoch:Math.floor(Date.now()/1000),tz_offset_min:tz})});
+  }catch{return n;}
+}
 let noteHydrated=false;
 async function loadNote(){
   try{
-    const n=await api('/api/v1/note');
+    const n=await syncNoteClock(await api('/api/v1/note'));
     renderNoteStatus(n);
     if(!noteHydrated&&(n.headline||n.body||n.signature)){
       noteHydrated=true;
@@ -1215,10 +1235,20 @@ $('sendNoteBtn').onclick=async()=>{
   finally{$('sendNoteBtn').disabled=false;}
 };
 $('previewNoteBtn').onclick=async()=>{
+  const btn=$('previewNoteBtn');
+  btn.disabled=true;
   try{
     await api('/api/v1/note/preview',{method:'POST'});
-    toast('Previewing note on grinder screen for 10s');
+    let outcome='pending';
+    for(let i=0;i<8&&outcome==='pending';i++){
+      await new Promise(r=>setTimeout(r,250));
+      outcome=(await api('/api/v1/note')).preview;
+    }
+    if(outcome==='shown')toast('Previewing note on grinder screen for 10s');
+    else if(outcome==='blocked')toast('The grinder screen is busy. Return it to the home screen and try again.',true);
+    else toast('The grinder did not confirm the preview. Check its screen.',true);
   }catch(e){toast(e.message,true);}
+  finally{btn.disabled=!state.note?.has_image;}
 };
 $('clearNoteBtn').onclick=async()=>{
   if(!confirm('Clear the morning note from the grinder?'))return;

@@ -894,6 +894,39 @@ void DeviceWebServer::configure_routes() {
         request->send(response);
     });
 
+    server_.on(AsyncURIMatcher::exact("/api/v1/note/clock"), HTTP_POST, [this](AsyncWebServerRequest* request) {
+        if (!request_origin_allowed(request)) {
+            request->send(403, "application/json", "{\"error\":\"Request origin is not allowed\"}");
+            return;
+        }
+        if (ota_active_.load()) {
+            request->send(409, "application/json", "{\"error\":\"Morning note storage is busy\"}");
+            return;
+        }
+        if (!request->hasParam("epoch", true) || !request->hasParam("tz_offset_min", true)) {
+            request->send(400, "application/json", "{\"error\":\"epoch and tz_offset_min are required\"}");
+            return;
+        }
+        char* epoch_end = nullptr;
+        char* offset_end = nullptr;
+        const String epoch_text = request->getParam("epoch", true)->value();
+        const String offset_text = request->getParam("tz_offset_min", true)->value();
+        const unsigned long long epoch = strtoull(epoch_text.c_str(), &epoch_end, 10);
+        const long offset_min = strtol(offset_text.c_str(), &offset_end, 10);
+        const bool parsed = !epoch_text.isEmpty() && epoch_end && *epoch_end == '\0' &&
+                            !offset_text.isEmpty() && offset_end && *offset_end == '\0' &&
+                            offset_min >= morning_note::kMinTzOffsetMin &&
+                            offset_min <= morning_note::kMaxTzOffsetMin;
+        if (!parsed || !morning_note_store.sync_clock(epoch, static_cast<int16_t>(offset_min))) {
+            request->send(400, "application/json", "{\"error\":\"Invalid clock sync values\"}");
+            return;
+        }
+        AsyncWebServerResponse* response =
+            request->beginResponse(200, "application/json", morning_note_store.status_json());
+        response->addHeader("Cache-Control", "no-store");
+        request->send(response);
+    });
+
     server_.on(AsyncURIMatcher::exact("/api/v1/ota/prepare"), HTTP_POST, [this](AsyncWebServerRequest* request) {
         const std::lock_guard<std::recursive_mutex> ota_lock(ota_mutex_);
         if (is_ota_active()) {

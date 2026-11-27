@@ -435,6 +435,46 @@ void MorningNoteStore::on_grind_completed() {
     }
 }
 
+bool MorningNoteStore::expire_immediate_note(uint32_t displayed_seconds) {
+    const std::lock_guard<std::recursive_mutex> lock(mutex_);
+    if (!initialized_) return false;
+    if (!morning_note::apply_immediate_display_limit(config_, displayed_seconds)) {
+        return false;
+    }
+    persist_config_locked(config_);
+    revision_.fetch_add(1);
+    LOG_BLE("[NOTE] Show-now note reached its %lus screen-time limit; disarmed\n",
+            static_cast<unsigned long>(morning_note::kMaxImmediateDisplaySeconds));
+    return true;
+}
+
+bool MorningNoteStore::sync_clock(uint64_t client_epoch, int16_t tz_offset_min) {
+    const std::lock_guard<std::recursive_mutex> lock(mutex_);
+    if (!initialized_) init();
+    if (client_epoch < morning_note::kMinValidEpoch ||
+        tz_offset_min < morning_note::kMinTzOffsetMin ||
+        tz_offset_min > morning_note::kMaxTzOffsetMin) {
+        return false;
+    }
+    fallback_anchor_epoch_ = client_epoch;
+    fallback_anchor_boot_s_ = boot_seconds();
+
+    // Only a daily window reads the offset; leave other notes untouched on flash.
+    const bool offset_in_use =
+        config_.enabled && config_.mode == morning_note::ScheduleMode::DAILY_WINDOW;
+    if (!offset_in_use || config_.tz_offset_min == tz_offset_min || upload_active_.load()) {
+        return true;
+    }
+    morning_note::MorningNoteConfig next = config_;
+    next.tz_offset_min = tz_offset_min;
+    if (!persist_config_locked(next)) {
+        return false;
+    }
+    config_ = next;
+    LOG_BLE("[NOTE] Daily window now follows UTC offset %d min\n", static_cast<int>(tz_offset_min));
+    return true;
+}
+
 bool MorningNoteStore::request_preview(uint16_t duration_s) {
     const std::lock_guard<std::recursive_mutex> lock(mutex_);
     if (!initialized_ || upload_active_.load() || !has_image_cached_) {
@@ -444,12 +484,17 @@ bool MorningNoteStore::request_preview(uint16_t duration_s) {
     if (duration_s > morning_note::kMaxPreviewDurationS) {
         duration_s = morning_note::kMaxPreviewDurationS;
     }
+    preview_outcome_.store(PreviewOutcome::PENDING);
     preview_request_s_.store(duration_s);
     return true;
 }
 
 uint16_t MorningNoteStore::consume_preview_request() {
     return preview_request_s_.exchange(0);
+}
+
+void MorningNoteStore::report_preview_outcome(bool shown) {
+    preview_outcome_.store(shown ? PreviewOutcome::SHOWN : PreviewOutcome::BLOCKED);
 }
 
 String MorningNoteStore::status_json() const {
@@ -459,13 +504,21 @@ String MorningNoteStore::status_json() const {
     const auto eval = morning_note::evaluate_morning_note_due(
         config_, now_epoch, clock_synced, has_image_cached_);
 
+    const char* preview = "none";
+    switch (preview_outcome_.load()) {
+        case PreviewOutcome::PENDING: preview = "pending"; break;
+        case PreviewOutcome::SHOWN: preview = "shown"; break;
+        case PreviewOutcome::BLOCKED: preview = "blocked"; break;
+        case PreviewOutcome::NONE: break;
+    }
+
     String json;
     json.reserve(768);
-    char prefix[320];
+    char prefix[384];
     snprintf(
         prefix, sizeof(prefix),
         "{\"api\":\"v1\",\"enabled\":%s,\"due_now\":%s,\"has_image\":%s,"
-        "\"clock_synced\":%s,\"device_epoch\":%llu,"
+        "\"clock_synced\":%s,\"device_epoch\":%llu,\"preview\":\"%s\","
         "\"mode\":\"%s\",\"start_epoch\":%llu,\"end_epoch\":%llu,"
         "\"start_min\":%u,\"end_min\":%u,\"tz_offset_min\":%d,"
         "\"clear_on_grind\":%s,\"headline\":\"",
@@ -474,6 +527,7 @@ String MorningNoteStore::status_json() const {
         has_image_cached_ ? "true" : "false",
         clock_synced ? "true" : "false",
         static_cast<unsigned long long>(now_epoch),
+        preview,
         morning_note::mode_to_string(config_.mode),
         static_cast<unsigned long long>(config_.start_epoch),
         static_cast<unsigned long long>(config_.end_epoch),

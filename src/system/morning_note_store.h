@@ -40,10 +40,21 @@ public:
     uint64_t current_epoch(bool* clock_synced = nullptr) const;
     bool is_due_now();
     void on_grind_completed();
+    // Disarms a "Show now" note that has used up its on-screen budget.
+    // Returns true if the note was disarmed.
+    bool expire_immediate_note(uint32_t displayed_seconds);
+    // Adopts the browser's clock (used until NTP is available) and its current
+    // UTC offset, so a daily window follows daylight-saving changes without
+    // re-sending the note. Does not re-arm a note dismissed for today.
+    bool sync_clock(uint64_t client_epoch, int16_t tz_offset_min);
 
     // Live preview signaling (Web -> UI task)
+    enum class PreviewOutcome : uint8_t { NONE, PENDING, SHOWN, BLOCKED };
     bool request_preview(uint16_t duration_s = morning_note::kDefaultPreviewDurationS);
     uint16_t consume_preview_request();
+    // UI task reports whether the requested preview reached the screen, so the
+    // web client can tell the user instead of assuming success.
+    void report_preview_outcome(bool shown);
 
     // Increments on any committed image/config change so UI can refresh active note
     uint32_t revision() const { return revision_.load(); }
@@ -71,6 +82,7 @@ private:
     OperationInterlock::Token upload_token_ = 0;
     std::atomic<bool> upload_active_{false};
     std::atomic<uint16_t> preview_request_s_{0};
+    std::atomic<PreviewOutcome> preview_outcome_{PreviewOutcome::NONE};
     std::atomic<uint32_t> revision_{1};
 };
 

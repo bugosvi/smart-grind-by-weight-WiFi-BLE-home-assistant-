@@ -182,6 +182,31 @@ int main() {
         assert(out.dismissed_day == 42U);
     }
 
+    // 9. IMMEDIATE notes are disarmed after the same screen time a window allows
+    {
+        assert(kMaxImmediateDisplaySeconds == kMaxWindowSeconds);
+
+        MorningNoteConfig cfg{};
+        cfg.enabled = true;
+        cfg.mode = ScheduleMode::IMMEDIATE;
+        cfg.clear_on_grind = false;  // Nothing else would ever clear this note
+        assert(!apply_immediate_display_limit(cfg, 0));
+        assert(!apply_immediate_display_limit(cfg, kMaxImmediateDisplaySeconds - 1U));
+        assert(cfg.enabled);
+        assert(evaluate_morning_note_due(cfg, 0, false, true).is_due);
+        assert(apply_immediate_display_limit(cfg, kMaxImmediateDisplaySeconds));
+        assert(!cfg.enabled);
+        assert(!evaluate_morning_note_due(cfg, 0, false, true).is_due);
+        assert(!apply_immediate_display_limit(cfg, kMaxImmediateDisplaySeconds));  // Already disarmed
+
+        // Scheduled modes are bounded by their own window and are never disarmed here
+        MorningNoteConfig daily{};
+        daily.enabled = true;
+        daily.mode = ScheduleMode::DAILY_WINDOW;
+        assert(!apply_immediate_display_limit(daily, kMaxImmediateDisplaySeconds * 4U));
+        assert(daily.enabled);
+    }
+
     std::printf("morning_note_policy_test: PASS\n");
     return 0;
 }
