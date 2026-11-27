@@ -22,6 +22,7 @@
 #include "../logging/grind_logging.h"
 #include "../logging/diagnostic_log.h"
 #include "../system/morning_note_store.h"
+#include "../system/statistics_manager.h"
 #include "network_manager.h"
 #include "device_api.h"
 #include "ota_stream.h"
@@ -482,6 +483,32 @@ void DeviceWebServer::configure_routes() {
         AsyncWebServerResponse* response = request->beginResponse(
             200, "text/plain; charset=utf-8", diagnostic_log_snapshot());
         response->addHeader("Cache-Control", "private, no-store");
+        request->send(response);
+    });
+
+    server_.on(AsyncURIMatcher::exact("/api/v1/stats"), HTTP_GET, [](AsyncWebServerRequest* request) {
+        char json[512];
+        snprintf(json, sizeof(json),
+                 "{\"api\":\"v1\",\"total_grinds\":%lu,\"single_shots\":%lu,"
+                 "\"double_shots\":%lu,\"custom_shots\":%lu,\"total_weight_kg\":%.3f,"
+                 "\"motor_runtime_sec\":%lu,\"device_uptime_hrs\":%lu,\"device_uptime_min\":%lu,"
+                 "\"weight_mode_grinds\":%lu,\"time_mode_grinds\":%lu,"
+                 "\"avg_accuracy_g\":%.3f,\"total_pulses\":%lu,\"avg_pulses\":%.2f}",
+                 static_cast<unsigned long>(statistics_manager.get_total_grinds()),
+                 static_cast<unsigned long>(statistics_manager.get_single_shots()),
+                 static_cast<unsigned long>(statistics_manager.get_double_shots()),
+                 static_cast<unsigned long>(statistics_manager.get_custom_shots()),
+                 static_cast<double>(statistics_manager.get_total_weight_kg()),
+                 static_cast<unsigned long>(statistics_manager.get_motor_runtime_sec()),
+                 static_cast<unsigned long>(statistics_manager.get_device_uptime_hrs()),
+                 static_cast<unsigned long>(statistics_manager.get_device_uptime_min_remainder()),
+                 static_cast<unsigned long>(statistics_manager.get_weight_mode_grinds()),
+                 static_cast<unsigned long>(statistics_manager.get_time_mode_grinds()),
+                 static_cast<double>(statistics_manager.get_avg_accuracy_g()),
+                 static_cast<unsigned long>(statistics_manager.get_total_pulses()),
+                 static_cast<double>(statistics_manager.get_avg_pulses()));
+        AsyncWebServerResponse* response = request->beginResponse(200, "application/json", json);
+        response->addHeader("Cache-Control", "no-store");
         request->send(response);
     });
 

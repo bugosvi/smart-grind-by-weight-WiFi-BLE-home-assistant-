@@ -196,13 +196,33 @@ textarea{resize:vertical;min-height:92px;line-height:1.45}
 .details dd{margin:0;overflow-wrap:anywhere}
 .details a{color:var(--accent)}
 .logview{max-height:250px;overflow:auto;white-space:pre-wrap;word-break:break-word;background:#0a0d0a;color:#d2e0cc;border:1px solid var(--line);border-radius:12px;padding:13px;font:12px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace}
+.periodbar{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px}
+.periodtabs{display:flex;flex-wrap:wrap;gap:6px}
+.ptab{border:1px solid var(--line);background:var(--surface);color:var(--muted);padding:7px 12px;border-radius:999px;font-size:12.5px;font-weight:700;cursor:pointer;transition:.16s}
+.ptab.active{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 14%,var(--surface));color:var(--text)}
+.daterange{display:none;align-items:center;gap:6px;flex-wrap:wrap;font-size:12.5px;color:var(--muted)}
+.daterange.show{display:flex}
+.daterange input{padding:6px 9px;border:1px solid var(--line);border-radius:9px;background:var(--surface);color:var(--text);font:inherit}
+.summary4{grid-template-columns:repeat(4,1fr);margin-bottom:14px}
+.metric small{display:block;margin-top:4px;font-size:12px;color:var(--muted);font-weight:500}
+.analytics-grid{grid-template-columns:1.35fr 1fr;margin-bottom:14px}
+.barchartwrap{height:185px;position:relative;margin-top:8px}
+.barchartwrap canvas{width:100%;height:100%;display:block}
+.breakdown{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.bchip{border:1px solid var(--line);background:var(--bg);border-radius:10px;padding:6px 10px;font-size:12px;color:var(--muted)}
+.bchip strong{color:var(--text);font-weight:700}
+.lifegrid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:8px}
+.lifebox{border:1px solid var(--line);background:var(--bg);border-radius:12px;padding:10px 12px}
+.lifebox span{display:block;font-size:11.5px;color:var(--muted);margin-bottom:3px}
+.lifebox strong{font-size:17px;font-weight:800}
 .toast{position:fixed;right:22px;bottom:22px;z-index:60;max-width:360px;background:var(--text);color:var(--bg);border-radius:13px;padding:12px 16px;box-shadow:var(--shadow);transform:translateY(90px);opacity:0;transition:.24s;font-weight:600}
 .toast.show{transform:none;opacity:1}
 .toast.error{background:var(--danger);color:#fff}
 
 @media(max-width:820px){
-  .studio-layout{grid-template-columns:1fr}
+  .studio-layout,.analytics-grid{grid-template-columns:1fr}
   .settings-layout,.history-layout{grid-template-columns:1fr}
+  .summary4{grid-template-columns:repeat(2,1fr)}
   .settingsnav{display:none}
 }
 @media(max-width:760px){
@@ -428,24 +448,66 @@ textarea{resize:vertical;min-height:92px;line-height:1.45}
     </div>
   </section>
 
-  <!-- HISTORY -->
+  <!-- HISTORY & ANALYTICS -->
   <section id="history" class="page">
     <div class="hero">
       <div>
-        <div class="eyebrow">On-device archive</div>
-        <h1>Grind history</h1>
-        <p class="sub">Review dosing accuracy, flow stability, and pulse count from recorded sessions.</p>
+        <div class="eyebrow">On-device archive &amp; analytics</div>
+        <h1>History &amp; Coffee Stats</h1>
+        <p class="sub">Track total coffee ground over any period, dosing accuracy, daily consumption, and lifetime burr usage.</p>
       </div>
-      <button id="refreshHistory" class="btn secondary">Refresh</button>
+      <div class="actions" style="margin:0">
+        <button id="exportPeriodCsv" class="btn secondary small" type="button">Export CSV</button>
+        <button id="refreshHistory" class="btn secondary">Refresh</button>
+      </div>
     </div>
-    <div class="grid summary">
-      <div class="metric"><label>Saved grinds</label><strong id="historyCount" class="num">—</strong></div>
-      <div class="metric"><label>Average error</label><strong id="averageError" class="num">—</strong></div>
-      <div class="metric"><label>Consistency</label><strong id="consistency" class="num">—</strong></div>
+
+    <div class="periodbar">
+      <div class="periodtabs" role="tablist" aria-label="Time period filter">
+        <button type="button" class="ptab" data-period="today">Today</button>
+        <button type="button" class="ptab" data-period="7d">7 Days</button>
+        <button type="button" class="ptab" data-period="30d">30 Days</button>
+        <button type="button" class="ptab active" data-period="all">All saved</button>
+        <button type="button" class="ptab" data-period="custom">Custom</button>
+      </div>
+      <div id="customDateRange" class="daterange">
+        <label>From <input id="dateFrom" type="date"></label>
+        <label>To <input id="dateTo" type="date"></label>
+      </div>
     </div>
+
+    <div class="grid summary4">
+      <div class="metric"><label>Coffee ground</label><strong id="periodCoffee" class="num">—</strong><small id="periodBags">Select period</small></div>
+      <div class="metric"><label>Shots in period</label><strong id="historyCount" class="num">—</strong><small id="periodAvgDose">—</small></div>
+      <div class="metric"><label>Avg error &amp; SD</label><strong id="averageError" class="num">—</strong><small id="consistency">—</small></div>
+      <div class="metric"><label>Pulses &amp; motor</label><strong id="periodPulses" class="num">—</strong><small id="periodMotor">—</small></div>
+    </div>
+
+    <div class="grid analytics-grid">
+      <div class="card">
+        <div class="cardhead">
+          <div><h2>Coffee throughput by day</h2><span id="usageChartSub" class="sub">Grams ground per day in selected period</span></div>
+        </div>
+        <div class="barchartwrap"><canvas id="usageChart"></canvas></div>
+        <div id="profileBreakdown" class="breakdown"></div>
+      </div>
+      <div class="card">
+        <div class="cardhead">
+          <div><h2>Lifetime grinder totals</h2><span class="sub">Persistent NVS totals across all reboots</span></div>
+        </div>
+        <div class="lifegrid">
+          <div class="lifebox"><span>Total coffee</span><strong id="lifeCoffee" class="num">—</strong></div>
+          <div class="lifebox"><span>Total shots</span><strong id="lifeShots" class="num">—</strong></div>
+          <div class="lifebox"><span>Lifetime avg error</span><strong id="lifeAcc" class="num">—</strong></div>
+          <div class="lifebox"><span>Motor runtime</span><strong id="lifeMotor" class="num">—</strong></div>
+        </div>
+        <div id="lifeBreakdown" class="breakdown"></div>
+      </div>
+    </div>
+
     <div class="grid history-layout">
       <div class="card">
-        <div class="cardhead"><h2>Sessions</h2></div>
+        <div class="cardhead"><h2>Sessions</h2><span id="filteredBadge" class="sub"></span></div>
         <div id="historyList" class="history-list"><div class="empty">Loading history…</div></div>
       </div>
       <div id="historyDetail" class="card"><div class="empty">Select a grind to inspect its trace and metrics.</div></div>
@@ -687,7 +749,7 @@ let liveTarget=null;
 const state={
   page:'dashboard',settings:null,safety:null,note:null,
   dashboardProfiles:null,dashboardMode:'weight',
-  history:[],selected:null,deviceStatus:null,
+  history:[],selected:null,stats:null,historyPeriod:'all',deviceStatus:null,
   latestRelease:null,latestAsset:null,releaseChecked:false,
   screensaverStyle:'minimal',grindLayout:'portafilter',
   noteTheme:'espresso',noteMode:'tomorrow',noteBgImg:null,
@@ -717,7 +779,7 @@ $('themeButton').onclick=()=>{
   const dark=document.documentElement.dataset.theme==='dark';
   state.theme=dark?'light':'dark';
   localStorage.setItem('smartgrind-theme',state.theme);
-  applyTheme();drawLive();if(state.selected)drawHistory(state.selected);
+  applyTheme();drawLive();if(state.selected)drawHistory(state.selected);if(state.page==='history')drawUsageChart(filteredHistory());
 };
 function toast(text,error=false){
   clearTimeout(toastTimer);
@@ -732,7 +794,7 @@ function showPage(page){
   history.replaceState(null,'','#'+page);
   if(page==='dashboard')drawLive();
   if(page==='notes'){renderNoteCanvas();loadNote();}
-  if(page==='history'&&!state.history.length)loadHistory();
+  if(page==='history'){if(!state.history.length)loadHistory();else drawUsageChart(filteredHistory());}
   if(page==='settings'){if(!state.settings)loadSettings();loadSafety();}
 }
 document.querySelectorAll('.nav button').forEach(b=>b.onclick=()=>showPage(b.dataset.page));
@@ -1592,29 +1654,150 @@ $('deleteScreensaver').onclick=async()=>{
   catch(e){toast(e.message,true);}
 };
 
-/* --- History --- */
+/* --- History & Period Analytics --- */
 function historyDate(s){return s.timestamp>1609459200?new Date(s.timestamp*1000).toLocaleString():`Session ${s.id}`;}
 function signed(n,d=2){return `${n>0?'+':''}${n.toFixed(d)}`;}
+function fmtDuration(sec){
+  sec=Math.max(0,Math.round(sec||0));
+  const h=Math.floor(sec/3600),m=Math.floor((sec%3600)/60),s=sec%60;
+  if(h)return `${h}h ${m}m`;
+  return m?`${m}m ${s}s`:`${s}s`;
+}
+function fmtCoffee(g){return g>=1000?`${(g/1000).toFixed(2)} kg`:`${g.toFixed(1)} g`;}
+function dayKey(ts){
+  const d=new Date(ts*1000);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function filteredHistory(){
+  const all=state.history||[];
+  const p=state.historyPeriod;
+  if(p==='all')return all;
+  const now=new Date();
+  let startMs=0,endMs=Infinity;
+  if(p==='today'){
+    startMs=new Date(now.getFullYear(),now.getMonth(),now.getDate()).getTime();
+  }else if(p==='7d'){
+    startMs=now.getTime()-7*86400000;
+  }else if(p==='30d'){
+    startMs=now.getTime()-30*86400000;
+  }else if(p==='custom'){
+    const f=$('dateFrom').value,t=$('dateTo').value;
+    if(f)startMs=new Date(f+'T00:00:00').getTime();
+    if(t)endMs=new Date(t+'T23:59:59.999').getTime();
+  }
+  return all.filter(s=>s.timestamp>1609459200&&s.timestamp*1000>=startMs&&s.timestamp*1000<=endMs);
+}
+function drawUsageChart(sessions){
+  const canvas=$('usageChart');if(!canvas)return;
+  const d=devicePixelRatio||1,w=canvas.clientWidth,h=canvas.clientHeight;
+  if(!w||!h)return;
+  if(canvas.width!==w*d||canvas.height!==h*d){canvas.width=w*d;canvas.height=h*d;}
+  const c=canvas.getContext('2d');
+  c.setTransform(d,0,0,d,0,0);c.clearRect(0,0,w,h);
+  const css=getComputedStyle(document.documentElement);
+  const accent=css.getPropertyValue('--accent').trim()||'#c48a3a';
+  const line=css.getPropertyValue('--line').trim()||'#333';
+  const muted=css.getPropertyValue('--muted').trim()||'#888';
+  const text=css.getPropertyValue('--text').trim()||'#eee';
+  const buckets=new Map();
+  sessions.forEach(s=>{
+    const key=s.timestamp>1609459200?dayKey(s.timestamp):`#${s.id}`;
+    const cur=buckets.get(key)||{grams:0,count:0};
+    cur.grams+=Math.max(0,Number(s.final_weight)||0);cur.count++;
+    buckets.set(key,cur);
+  });
+  const entries=[...buckets.entries()].sort((a,b)=>a[0].localeCompare(b[0])).slice(-14);
+  if(!entries.length){
+    c.fillStyle=muted;c.font='12px system-ui,sans-serif';c.textAlign='center';
+    c.fillText('No recorded grinds in this period',w/2,h/2);return;
+  }
+  const maxG=Math.max(10,...entries.map(e=>e[1].grams));
+  const padL=10,padR=10,padT=20,padB=24,plotW=w-padL-padR,plotH=h-padT-padB;
+  c.strokeStyle=line;c.lineWidth=1;c.beginPath();
+  c.moveTo(padL,padT+plotH);c.lineTo(w-padR,padT+plotH);c.stroke();
+  const slot=plotW/entries.length,barW=Math.min(34,Math.max(10,slot*0.62));
+  entries.forEach(([k,v],idx)=>{
+    const bh=Math.max(3,(v.grams/maxG)*plotH);
+    const x=padL+idx*slot+(slot-barW)/2,y=padT+plotH-bh;
+    c.fillStyle=accent;
+    c.beginPath();
+    if(c.roundRect)c.roundRect(x,y,barW,bh,[5,5,0,0]);
+    else c.rect(x,y,barW,bh);
+    c.fill();
+    c.fillStyle=text;c.font='600 10.5px ui-monospace,monospace';c.textAlign='center';
+    c.fillText(`${Math.round(v.grams)}g`,x+barW/2,y-5);
+    c.fillStyle=muted;c.font='10px system-ui,sans-serif';
+    c.fillText(k.length===10?k.slice(5):k,x+barW/2,h-7);
+  });
+}
+function renderLifetimeStats(){
+  const st=state.stats;if(!st)return;
+  const totalG=(st.total_weight_kg||0)*1000;
+  $('lifeCoffee').textContent=fmtCoffee(totalG);
+  $('lifeShots').textContent=String(st.total_grinds??0);
+  $('lifeAcc').textContent=st.total_grinds?`${Number(st.avg_accuracy_g||0).toFixed(2)} g`:'—';
+  $('lifeMotor').textContent=fmtDuration(st.motor_runtime_sec||0);
+  const bags=(totalG/250).toFixed(1);
+  $('lifeBreakdown').innerHTML=[
+    `<span class="bchip">Single: <strong>${st.single_shots||0}</strong></span>`,
+    `<span class="bchip">Double: <strong>${st.double_shots||0}</strong></span>`,
+    `<span class="bchip">Custom: <strong>${st.custom_shots||0}</strong></span>`,
+    `<span class="bchip">Avg pulses: <strong>${Number(st.avg_pulses||0).toFixed(1)}</strong></span>`,
+    `<span class="bchip">≈ <strong>${bags}</strong> × 250g bags</span>`,
+    `<span class="bchip">Uptime: <strong>${st.device_uptime_hrs||0}h ${st.device_uptime_min||0}m</strong></span>`
+  ].join('');
+}
+function renderHistoryAnalytics(){
+  const sessions=filteredHistory();
+  const totalG=sessions.reduce((a,s)=>a+Math.max(0,Number(s.final_weight)||0),0);
+  const totalMotorS=sessions.reduce((a,s)=>a+(Number(s.motor_time_ms)||0)/1000,0);
+  const totalPulses=sessions.reduce((a,s)=>a+(Number(s.pulses)||0),0);
+  const count=sessions.length;
+  $('periodCoffee').textContent=count?fmtCoffee(totalG):'0.0 g';
+  $('periodBags').textContent=count?`≈ ${(totalG/250).toFixed(2)} × 250g bags`:'No grinds in period';
+  $('historyCount').textContent=String(count);
+  $('periodAvgDose').textContent=count?`${(totalG/count).toFixed(1)} g avg dose`:'—';
+  const weightS=sessions.filter(s=>s.mode==='weight');
+  const errors=weightS.map(s=>s.error_grams),abs=errors.map(Math.abs);
+  $('averageError').textContent=abs.length?`${(abs.reduce((a,b)=>a+b,0)/abs.length).toFixed(2)} g`:'—';
+  if(errors.length>1){
+    const avg=errors.reduce((a,b)=>a+b,0)/errors.length;
+    const sd=Math.sqrt(errors.reduce((a,b)=>a+(b-avg)**2,0)/errors.length);
+    $('consistency').textContent=`±${sd.toFixed(2)} g SD`;
+  }else $('consistency').textContent='—';
+  $('periodPulses').textContent=count?`${(totalPulses/count).toFixed(1)} / shot`:'—';
+  $('periodMotor').textContent=count?`Motor ${fmtDuration(totalMotorS)}`:'—';
+  const profNames=['Single','Double','Custom'];
+  const pStats=[0,1,2].map(id=>{
+    const items=sessions.filter(s=>s.profile===id);
+    const g=items.reduce((a,s)=>a+Math.max(0,Number(s.final_weight)||0),0);
+    return `<span class="bchip">${profNames[id]}: <strong>${items.length}</strong> (${g.toFixed(0)}g)</span>`;
+  });
+  $('profileBreakdown').innerHTML=pStats.join('');
+  $('filteredBadge').textContent=`${count} of ${state.history.length} saved`;
+  drawUsageChart(sessions);
+  renderHistoryList(sessions);
+}
 async function loadHistory(){
   const list=$('historyList');list.innerHTML='<div class="empty">Loading history…</div>';
   try{
-    const h=await api('/api/v1/history');state.history=h.sessions||[];
-    $('historyCount').textContent=state.history.length;
-    const errors=state.history.filter(s=>s.mode==='weight').map(s=>s.error_grams),abs=errors.map(Math.abs);
-    $('averageError').textContent=abs.length?`${(abs.reduce((a,b)=>a+b,0)/abs.length).toFixed(2)} g`:'—';
-    if(errors.length>1){
-      const avg=errors.reduce((a,b)=>a+b,0)/errors.length;
-      const sd=Math.sqrt(errors.reduce((a,b)=>a+(b-avg)**2,0)/errors.length);
-      $('consistency').textContent=`±${sd.toFixed(2)} g`;
-    }else $('consistency').textContent='—';
-    renderHistoryList();
-    if(state.history.length)openHistory(state.history[0].id);
+    const [h,st]=await Promise.all([api('/api/v1/history'),api('/api/v1/stats').catch(()=>null)]);
+    state.history=h.sessions||[];
+    if(st){state.stats=st;renderLifetimeStats();}
+    renderHistoryAnalytics();
+    const visible=filteredHistory();
+    if(visible.length)openHistory(visible[0].id);
   }catch(e){list.innerHTML=`<div class="empty">${esc(e.message)}</div>`;toast(e.message,true);}
 }
-function renderHistoryList(){
-  const list=$('historyList');
-  if(!state.history.length){list.innerHTML='<div class="empty">No saved grinds yet. Enable “Save grind history” in Settings.</div>';return;}
-  list.innerHTML=state.history.map(s=>`<button class="shot ${state.selected?.session.id===s.id?'active':''}" data-id="${s.id}"><strong>${esc(historyDate(s))}</strong><span class="result">${esc(s.result||'Saved')}</span><small class="num">${s.mode==='time'?`${(s.target_time_ms/1000).toFixed(1)} s`:`${s.target_weight.toFixed(1)} g target`}</small><small class="num">${s.mode==='time'?`${signed(s.time_error_ms/1000,2)} s`:`${signed(-s.error_grams)} g`}</small></button>`).join('');
+function renderHistoryList(sessions){
+  const list=$('historyList'),items=sessions||filteredHistory();
+  if(!items.length){
+    list.innerHTML=state.history.length
+      ?'<div class="empty">No recorded grinds match this period.</div>'
+      :'<div class="empty">No saved grinds yet. Enable “Save grind history” in Settings.</div>';
+    return;
+  }
+  list.innerHTML=items.map(s=>`<button class="shot ${state.selected?.session.id===s.id?'active':''}" data-id="${s.id}"><strong>${esc(historyDate(s))}</strong><span class="result">${esc(s.result||'Saved')}</span><small class="num">${s.mode==='time'?`${(s.target_time_ms/1000).toFixed(1)} s`:`${s.target_weight.toFixed(1)} g target`}</small><small class="num">${s.mode==='time'?`${signed(s.time_error_ms/1000,2)} s`:`${signed(-s.error_grams)} g`}</small></button>`).join('');
   list.querySelectorAll('.shot').forEach(b=>b.onclick=()=>openHistory(+b.dataset.id));
 }
 function parseSession(buffer){
@@ -1658,6 +1841,22 @@ function downloadHistory(type){
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();
   setTimeout(()=>URL.revokeObjectURL(a.href),1000);
 }
+document.querySelectorAll('.ptab').forEach(b=>b.onclick=()=>{
+  state.historyPeriod=b.dataset.period;
+  document.querySelectorAll('.ptab').forEach(x=>x.classList.toggle('active',x===b));
+  $('customDateRange').classList.toggle('show',state.historyPeriod==='custom');
+  renderHistoryAnalytics();
+});
+$('dateFrom').onchange=$('dateTo').onchange=()=>renderHistoryAnalytics();
+$('exportPeriodCsv').onclick=()=>{
+  const items=filteredHistory();
+  if(!items.length){toast('No grinds in selected period to export',true);return;}
+  const rows=['date,session_id,profile,mode,target_g,final_g,error_g,pulses,motor_s,result',
+    ...items.map(s=>`${s.timestamp>1609459200?new Date(s.timestamp*1000).toISOString():''},${s.id},${['Single','Double','Custom'][s.profile]||s.profile},${s.mode},${s.target_weight.toFixed(2)},${s.final_weight.toFixed(2)},${s.error_grams.toFixed(2)},${s.pulses},${(s.motor_time_ms/1000).toFixed(2)},${s.result||''}`)];
+  const blob=new Blob([rows.join('\n')],{type:'text/csv'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`smartgrind-usage-${state.historyPeriod}.csv`;a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+};
 $('refreshHistory').onclick=loadHistory;
 $('refreshLogs').onclick=async()=>{
   try{const log=await api('/api/v1/logs');$('diagnosticLog').textContent=log||'No diagnostic messages yet.';$('diagnosticLog').scrollTop=$('diagnosticLog').scrollHeight;}
