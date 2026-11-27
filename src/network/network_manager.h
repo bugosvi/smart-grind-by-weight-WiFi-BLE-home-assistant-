@@ -22,6 +22,7 @@ class SmartGrindNetworkManager {
 public:
     void init(Preferences* preferences);
     void update();
+    void set_grind_active(bool active) { grind_active_.store(active); }
 
     bool set_enabled(bool enabled);
     bool set_credentials(const String& ssid, const String& password);
@@ -44,6 +45,9 @@ public:
     String join_failure_summary() const;
     // The summary followed by what the user can do about it, or empty.
     String join_failure_explanation() const;
+    // Optional Wi-Fi TX power cap in dBm (0 = unrestricted stock default; 8..20 = cap)
+    void set_tx_power_dbm(uint8_t dbm);
+    uint8_t tx_power_dbm() const { return tx_power_dbm_.load(); }
 
 private:
     static constexpr uint32_t CONNECT_TIMEOUT_MS = 15000;
@@ -53,6 +57,8 @@ private:
     std::atomic<NetworkState> state_{NetworkState::WIFI_DISABLED};
     std::atomic<bool> initialized_{false};
     std::atomic<bool> enabled_{false};
+    std::atomic<bool> grind_active_{false};
+    std::atomic<uint8_t> tx_power_dbm_{0};
     // Written by the Wi-Fi event task, read when a join attempt times out.
     std::atomic<uint16_t> last_disconnect_reason_{wifi_disconnect_reason::NONE};
     std::atomic<WifiJoinFailure> last_join_failure_{WifiJoinFailure::NONE};
@@ -69,6 +75,7 @@ private:
     void handle_connected();
     void stop_network();
     void set_state(NetworkState state);
+    void apply_tx_power() const;
     static String default_hostname();
     static String sanitize_hostname(const String& hostname);
 };

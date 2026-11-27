@@ -212,6 +212,7 @@ void loop() {
     static uint32_t last_uptime_update = 0;
     static uint32_t pending_uptime_minutes = 0;
     uint32_t current_time = millis();
+    network_manager.set_grind_active(grind_controller.is_active());
     network_manager.update();
     provisioning_service.update();
     // AsyncTCP requires lwIP's TCP/IP task and mutexes to exist. They are only

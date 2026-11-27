@@ -9,16 +9,28 @@
 #include "grind_session_result.h"
 #include "grind_strategy.h"
 #include "net_weight_guard.h"
+#include "remote_grind_safety.h"
+#include "adaptive_grind_math.h"
 #include "weight_grind_strategy.h"
 #include "time_grind_strategy.h"
 #include "../system/operation_interlock.h"
 #include <Preferences.h>
 #include <LittleFS.h>
+#include <cstring>
 #include <mutex>
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 
 class DiagnosticsController;
+
+// Optional overrides for remote / automated grinds (Home Assistant, Web API)
+struct RemoteGrindOptions {
+    bool is_remote = false;
+    bool skip_purge_confirm = false;
+    uint16_t max_grind_time_s = 0;         // 0 = use default GRIND_TIMEOUT_SEC
+    uint16_t no_flow_timeout_ms = 3000;    // 0 = disabled
+    float no_flow_min_weight_g = 0.5f;
+};
 
 // Flash operation request structure for Core 0 → Core 1 communication
 struct FlashOpRequest {
@@ -180,6 +192,18 @@ private:
     bool grinder_purged_since_boot;      // Tracks if grinder has been used since boot (RAM only)
     uint64_t last_purge_runtime_ms;      // Runtime when last grind completed (persisted)
 
+    // Active session safety overrides (for remote / automated grinds & No-Flow Watchdog)
+    bool active_session_is_remote_ = false;
+    uint16_t active_session_max_time_s_ = 0;
+    uint16_t active_no_flow_timeout_ms_ = 3000;
+    float active_no_flow_min_weight_g_ = 0.5f;
+
+    // Adaptive zero-shot + gentle cross-shot coast learning state
+    adaptive_grind::AdaptiveCoastState adaptive_coast_state_;
+    float last_predictive_flow_gps_ = 0.0f;
+    bool predictive_coast_learned_this_shot_ = false;
+    bool adaptive_coast_dirty_ = false;
+
 public:
     using GrindSessionResult = ::GrindSessionResult;
 
@@ -194,7 +218,8 @@ public:
     }
 
     void init(WeightSensor* lc, Grinder* gr, Preferences* prefs);
-    bool start_grind(float target_weight, uint32_t target_time_ms, GrindMode grind_mode);
+    bool start_grind(float target_weight, uint32_t target_time_ms, GrindMode grind_mode,
+                     const RemoteGrindOptions& options = {});
     void user_tare_request();
     void return_to_idle(); // Called by UI to acknowledge completion/timeout
     void stop_grind();
@@ -276,9 +301,27 @@ public:
     void load_coast_ratio();
     bool save_coast_ratio(float value);
 
+    // Adaptive zero-shot coast learning accessors
+    adaptive_grind::AdaptiveCoastState get_adaptive_coast_state() const {
+        const auto control_lock = lock_control();
+        return adaptive_coast_state_;
+    }
+    void set_adaptive_coast_enabled(bool enabled);
+    void reset_adaptive_coast();
+    void load_adaptive_coast_state();
+    bool save_adaptive_coast_state();
+
     // Grind freshness accessors
     bool get_grinder_purged_since_boot() const { const auto control_lock = lock_control(); return grinder_purged_since_boot; }
     uint64_t get_last_purge_runtime_ms() const { const auto control_lock = lock_control(); return last_purge_runtime_ms; }
+
+    // Last terminal/safety error message (thread-safe copy for WebSocket/HA reporting)
+    void get_last_error_message(char* out, size_t out_size) const {
+        if (!out || out_size == 0) return;
+        const auto control_lock = lock_control();
+        std::strncpy(out, last_error_message, out_size - 1);
+        out[out_size - 1] = '\0';
+    }
     
     // Removed - predictive logic now inline in update_realtime()
     
@@ -288,6 +331,7 @@ private:
     void switch_phase(GrindPhase new_phase, const GrindLoopData& loop_data = {});
     void final_measurement(const GrindLoopData& loop_data);
     void monitor_mechanical_instability(const GrindLoopData& loop_data);
+    void abort_no_flow(const GrindLoopData& loop_data);
 
     bool check_timeout() const;
     uint8_t get_current_phase_id() const;

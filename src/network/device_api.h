@@ -7,6 +7,8 @@
 #include <freertos/queue.h>
 #include <freertos/semphr.h>
 
+#include "../controllers/remote_grind_safety.h"
+
 class GrindController;
 class HardwareManager;
 class ProfileController;
@@ -50,6 +52,7 @@ public:
     // UI task calls this only after reloading runtime settings.
     void complete_settings_application(bool runtime_applied);
     String settings_json();
+    String safety_json();
     void mark_settings_dirty() { settings_cache_dirty_.store(true); }
 
 private:
@@ -70,6 +73,10 @@ private:
         bool has_request_id = false;
         int profile_index = 0;
         int grind_mode = 0;
+        bool has_target_weight = false;
+        float target_weight = 0.0f;
+        bool has_require_cup = false;
+        bool require_cup = true;
         DeviceSettingsUpdate settings;
     };
 
@@ -84,6 +91,7 @@ private:
     QueueHandle_t command_queue_ = nullptr;
     SemaphoreHandle_t settings_mutex_ = nullptr;
     String settings_json_cache_;
+    remote_safety::RemoteSafetyConfig safety_config_{};
     struct SettingsResult {
         uint32_t id = 0;
         const char* status = "unknown";
@@ -114,6 +122,11 @@ private:
     bool queue_profile_selection(AsyncWebServerRequest* request);
     bool queue_settings_update(AsyncWebServerRequest* request);
     bool apply_settings(const DeviceSettingsUpdate& settings);
+    void load_safety_config();
+    bool save_safety_config(const remote_safety::RemoteSafetyConfig& cfg);
+    remote_safety::RemoteSafetyConfig get_safety_config() const;
+    remote_safety::CupInterlockStatus evaluate_live_cup_interlock(
+        float* gross_weight_out = nullptr, float* range_out = nullptr) const;
     uint32_t reserve_settings_result();
     void set_settings_result(uint32_t id, const char* status);
     const char* settings_result(uint32_t id);

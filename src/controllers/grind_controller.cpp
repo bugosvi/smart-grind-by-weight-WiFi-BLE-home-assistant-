@@ -107,15 +107,19 @@ void GrindController::init(WeightSensor* lc, Grinder* gr, Preferences* prefs) {
 
     // Load coast ratio from preferences
     load_coast_ratio();
+
+    // Load adaptive coast learning state from NVS
+    load_adaptive_coast_state();
 }
 
-bool GrindController::start_grind(float target, uint32_t time_ms, GrindMode grind_mode) {
+bool GrindController::start_grind(float target, uint32_t time_ms, GrindMode grind_mode,
+                                  const RemoteGrindOptions& options) {
     const auto control_lock = lock_control();
     if (phase != GrindPhase::IDLE) return false;
     const char* mode_name = grind_mode == GrindMode::TIME ? "TIME" :
                             grind_mode == GrindMode::MANUAL ? "MANUAL" : "WEIGHT";
-    LOG_BLE("[%lums CONTROLLER] start_grind() called with target=%.1fg, time=%lums, mode=%s\n",
-            millis(), target, (unsigned long)time_ms, mode_name);
+    LOG_BLE("[%lums CONTROLLER] start_grind() called with target=%.1fg, time=%lums, mode=%s, remote=%d\n",
+            millis(), target, (unsigned long)time_ms, mode_name, options.is_remote ? 1 : 0);
 #ifndef SMART_GRIND_SIM
     if (device_web_server.is_ota_active() || device_web_server.is_ota_preparing()) {
         LOG_BLE("[CONTROLLER] Grind blocked while firmware update is active\n");
@@ -140,6 +144,11 @@ bool GrindController::start_grind(float target, uint32_t time_ms, GrindMode grin
     if (!token) return false;
     operation_token_ = token;
 
+    active_session_is_remote_ = options.is_remote;
+    active_session_max_time_s_ = options.max_grind_time_s;
+    active_no_flow_timeout_ms_ = options.no_flow_timeout_ms;
+    active_no_flow_min_weight_g_ = options.no_flow_min_weight_g;
+
     if (grind_mode == GrindMode::WEIGHT) {
         // Read grinder purge settings from preferences (weight mode only)
         grinder_purge_mode_for_session = static_cast<GrinderPurgeMode>(GRIND_PURGE_MODE_DEFAULT);
@@ -150,6 +159,10 @@ bool GrindController::start_grind(float target, uint32_t time_ms, GrindMode grin
             float configured_amount = preferences->getFloat(PREF_KEY_GRINDER_AMOUNT_G, GRIND_PURGE_AMOUNT_DEFAULT_G);
             configured_amount = std::clamp(configured_amount, GRIND_PURGE_AMOUNT_MIN_G, GRIND_PURGE_AMOUNT_MAX_G);
             grinder_purge_amount_g_for_session = configured_amount;
+        }
+        // Automated/remote grinds must never stall waiting for a touchscreen purge confirmation
+        if (options.skip_purge_confirm || options.is_remote) {
+            grinder_purge_mode_for_session = GrinderPurgeMode::PRIME;
         }
     }
 
@@ -186,6 +199,8 @@ bool GrindController::start_grind(float target, uint32_t time_ms, GrindMode grin
 
     // Initialize dynamic pulse algorithm variables
     pulse_flow_rate = 0.0f;
+    last_predictive_flow_gps_ = 0.0f;
+    predictive_coast_learned_this_shot_ = false;
     
     // Initialize loop counters
     current_phase_loop_count = 0;
@@ -923,15 +938,34 @@ void GrindController::switch_phase(GrindPhase new_phase, const GrindLoopData& lo
 }
 
 
+void GrindController::abort_no_flow(const GrindLoopData& loop_data) {
+    if (grinder) {
+        grinder->stop();
+    }
+    timeout_phase = phase;
+    final_weight = loop_data.current_weight;
+    last_session_result_ = GrindSessionResult::ERROR;
+    set_error_message("no_beans_or_jam");
+    queue_log_message("[SAFETY] No-Flow Watchdog: stopped motor after %lums (weight %.2fg < %.2fg)\n",
+                      static_cast<unsigned long>(loop_data.now - phase_start_time),
+                      loop_data.current_weight,
+                      active_no_flow_min_weight_g_);
+    switch_phase(GrindPhase::TIMEOUT, loop_data);
+}
+
+
 bool GrindController::check_timeout() const {
     // Calculate elapsed time excluding paused states (PURGE_CONFIRM and TIME mode pause)
     unsigned long elapsed_ms = millis() - start_time;
     unsigned long current_pause_ms = (grind_paused_ && pause_start_ms_ > 0)
                                    ? (millis() - pause_start_ms_) : 0;
     unsigned long active_time_ms = elapsed_ms - timeout_offset_ms - current_pause_ms;
-    const uint32_t timeout_sec = mode == GrindMode::MANUAL
-                                     ? MANUAL_GRIND_TIMEOUT_SEC
-                                     : GRIND_TIMEOUT_SEC;
+    uint32_t timeout_sec = mode == GrindMode::MANUAL
+                               ? MANUAL_GRIND_TIMEOUT_SEC
+                               : GRIND_TIMEOUT_SEC;
+    if (active_session_max_time_s_ > 0 && active_session_max_time_s_ < timeout_sec) {
+        timeout_sec = active_session_max_time_s_;
+    }
     return active_time_ms >= (timeout_sec * 1000);
 }
 
@@ -1138,6 +1172,10 @@ void GrindController::process_queued_flash_operations() {
                         millis(), request.result_string, request.final_weight, request.pulse_count);
                 grind_logger.end_grind_session(request.result_string, request.final_weight, request.pulse_count,
                                                request.completed_at_ms);
+                if (adaptive_coast_dirty_) {
+                    save_adaptive_coast_state();
+                    adaptive_coast_dirty_ = false;
+                }
                 break;
 
             case FlashOpRequest::UPDATE_MANUAL_RUNTIME:
@@ -1365,4 +1403,68 @@ void GrindController::set_coast_ratio(float value) {
 
     coast_ratio_ = value;
     LOG_BLE("Coast ratio: Set to %.2f (not saved to NVS)\n", value);
+}
+
+//==============================================================================
+// Adaptive Zero-Shot Coast Learning Persistence
+//==============================================================================
+
+void GrindController::load_adaptive_coast_state() {
+    const auto control_lock = lock_control();
+    adaptive_coast_state_ = {};
+
+    Preferences ad_prefs;
+    if (!ad_prefs.begin(adaptive_grind::kPrefsNamespace, true)) {
+        return;
+    }
+
+    adaptive_coast_state_.enabled = ad_prefs.getBool(adaptive_grind::kPrefKeyEnabled, true);
+    const float coast_ms = ad_prefs.getFloat(adaptive_grind::kPrefKeyCoastMs, 0.0f);
+    const float ref_flow = ad_prefs.getFloat(adaptive_grind::kPrefKeyRefFlow, 0.0f);
+    const uint32_t samples = ad_prefs.getUInt(adaptive_grind::kPrefKeySamples, 0);
+    ad_prefs.end();
+
+    if (samples > 0 &&
+        std::isfinite(coast_ms) &&
+        coast_ms >= adaptive_grind::kLearnedCoastMinMs &&
+        coast_ms <= adaptive_grind::kLearnedCoastMaxMs &&
+        std::isfinite(ref_flow) &&
+        ref_flow >= 0.4f &&
+        ref_flow <= 5.0f) {
+        adaptive_coast_state_.learned_coast_time_ms = coast_ms;
+        adaptive_coast_state_.reference_flow_gps = ref_flow;
+        adaptive_coast_state_.sample_count = samples;
+        LOG_BLE("Adaptive coast loaded: %.1fms @ %.2fg/s (n=%lu, enabled=%d)\n",
+                coast_ms, ref_flow, static_cast<unsigned long>(samples),
+                adaptive_coast_state_.enabled ? 1 : 0);
+    }
+}
+
+bool GrindController::save_adaptive_coast_state() {
+    const auto control_lock = lock_control();
+    Preferences ad_prefs;
+    if (!ad_prefs.begin(adaptive_grind::kPrefsNamespace, false)) {
+        LOG_BLE("ERROR: Failed to open adaptive coast NVS namespace\n");
+        return false;
+    }
+
+    ad_prefs.putBool(adaptive_grind::kPrefKeyEnabled, adaptive_coast_state_.enabled);
+    ad_prefs.putFloat(adaptive_grind::kPrefKeyCoastMs, adaptive_coast_state_.learned_coast_time_ms);
+    ad_prefs.putFloat(adaptive_grind::kPrefKeyRefFlow, adaptive_coast_state_.reference_flow_gps);
+    ad_prefs.putUInt(adaptive_grind::kPrefKeySamples, adaptive_coast_state_.sample_count);
+    ad_prefs.end();
+    return true;
+}
+
+void GrindController::set_adaptive_coast_enabled(bool enabled) {
+    const auto control_lock = lock_control();
+    adaptive_coast_state_.enabled = enabled;
+    save_adaptive_coast_state();
+}
+
+void GrindController::reset_adaptive_coast() {
+    const auto control_lock = lock_control();
+    adaptive_coast_state_.reset_learned();
+    adaptive_coast_dirty_ = false;
+    save_adaptive_coast_state();
 }

@@ -77,6 +77,20 @@ target_include_directories(wifi-join-failure-test PRIVATE
     "${PROJECT_ROOT}/src"
 )
 
+add_executable(remote-grind-safety-test
+    remote_grind_safety_test.cpp
+)
+target_include_directories(remote-grind-safety-test PRIVATE
+    "${PROJECT_ROOT}/src"
+)
+
+add_executable(adaptive-grind-math-test
+    adaptive_grind_math_test.cpp
+)
+target_include_directories(adaptive-grind-math-test PRIVATE
+    "${PROJECT_ROOT}/src"
+)
+
 if(MSVC)
     target_compile_options(smart-grind-sim PRIVATE /W4 /permissive-)
 endif()
@@ -98,4 +112,8 @@ if(BUILD_TESTING)
     set_tests_properties(grind_session_result PROPERTIES TIMEOUT 5)
     add_test(NAME wifi_join_failure COMMAND wifi-join-failure-test)
     set_tests_properties(wifi_join_failure PROPERTIES TIMEOUT 5)
+    add_test(NAME remote_grind_safety COMMAND remote-grind-safety-test)
+    set_tests_properties(remote_grind_safety PROPERTIES TIMEOUT 5)
+    add_test(NAME adaptive_grind_math COMMAND adaptive-grind-math-test)
+    set_tests_properties(adaptive_grind_math PROPERTIES TIMEOUT 5)
 endif()

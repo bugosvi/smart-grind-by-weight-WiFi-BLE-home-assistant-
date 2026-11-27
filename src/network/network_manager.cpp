@@ -93,7 +93,11 @@ void SmartGrindNetworkManager::update() {
             set_state(NetworkState::WIFI_SETUP_REQUIRED);
         }
     } else if (state() == NetworkState::WIFI_RETRY_WAIT && elapsed_ms >= RETRY_DELAY_MS) {
-        begin_connection();
+        // State Gating: never trigger a Wi-Fi reconnect burst while grinding
+        // to avoid TX current spikes on the Eureka 5V rail or load cell noise.
+        if (!grind_active_.load()) {
+            begin_connection();
+        }
     }
 }
 
@@ -231,11 +235,13 @@ void SmartGrindNetworkManager::begin_connection() {
     last_join_failure_.store(WifiJoinFailure::NONE);
     WiFi.persistent(false);
     WiFi.mode(WIFI_STA);
+    apply_tx_power();
     WiFi.setAutoReconnect(true);
     WiFi.setHostname(hostname.c_str());
     WiFi.begin(ssid.c_str(), password.c_str());
     set_state(NetworkState::WIFI_CONNECTING);
-    LOG_BLE("[WIFI] Connecting to configured network as %s.local\n", hostname.c_str());
+    LOG_BLE("[WIFI] Connecting to configured network as %s.local (tx_power_dbm=%u)\n",
+            hostname.c_str(), static_cast<unsigned>(tx_power_dbm_.load()));
 }
 
 bool SmartGrindNetworkManager::start_setup_access_point(const String& ssid, const String& password) {
@@ -249,6 +255,7 @@ bool SmartGrindNetworkManager::start_setup_access_point(const String& ssid, cons
     // AP+STA keeps the setup network available while the STA radio scans for
     // nearby routers for the provisioning dropdown.
     WiFi.mode(WIFI_AP_STA);
+    apply_tx_power();
     // Some Android/Samsung captive-portal detectors do not launch their sign-in
     // UI when the AP gateway is in private address space. Use the same
     // public-looking, non-routed setup subnet as GaggiMate.
@@ -259,6 +266,36 @@ bool SmartGrindNetworkManager::start_setup_access_point(const String& ssid, cons
     set_state(NetworkState::WIFI_SETUP_AP);
     LOG_BLE("[WIFI] Setup access point started: %s (%s)\n", ssid.c_str(), WiFi.softAPIP().toString().c_str());
     return true;
+}
+
+void SmartGrindNetworkManager::set_tx_power_dbm(uint8_t dbm) {
+    tx_power_dbm_.store(dbm);
+    if (WiFi.getMode() != WIFI_OFF) {
+        apply_tx_power();
+    }
+}
+
+void SmartGrindNetworkManager::apply_tx_power() const {
+    const uint8_t dbm = tx_power_dbm_.load();
+    if (dbm == 0) {
+        WiFi.setTxPower(WIFI_POWER_19_5dBm);
+        return;
+    }
+    wifi_power_t level = WIFI_POWER_19_5dBm;
+    if (dbm <= 9) {
+        level = WIFI_POWER_8_5dBm;
+    } else if (dbm <= 11) {
+        level = WIFI_POWER_11dBm;
+    } else if (dbm <= 13) {
+        level = WIFI_POWER_13dBm;
+    } else if (dbm <= 15) {
+        level = WIFI_POWER_15dBm;
+    } else if (dbm <= 17) {
+        level = WIFI_POWER_17dBm;
+    } else if (dbm <= 18) {
+        level = WIFI_POWER_18_5dBm;
+    }
+    WiFi.setTxPower(level);
 }
 
 void SmartGrindNetworkManager::handle_connected() {

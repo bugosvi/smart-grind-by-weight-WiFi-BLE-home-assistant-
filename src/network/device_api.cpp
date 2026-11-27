@@ -17,6 +17,7 @@
 #include "../system/operation_interlock.h"
 #include "device_web_server.h"
 #include "gaggimate_status_client.h"
+#include "network_manager.h"
 
 DeviceApi device_api;
 
@@ -56,6 +57,50 @@ bool extract_json_uint(const char* json, const char* key, uint32_t& value) {
     if (*cursor != ',' && *cursor != '}') return false;
     value = static_cast<uint32_t>(parsed);
     return true;
+}
+
+bool extract_json_float(const char* json, const char* key, float& value) {
+    if (!json || !key) return false;
+    const String needle = "\"" + String(key) + "\"";
+    const char* cursor = strstr(json, needle.c_str());
+    if (!cursor) return false;
+    cursor += needle.length();
+    while (*cursor == ' ' || *cursor == '\t' || *cursor == '\r' || *cursor == '\n') ++cursor;
+    if (*cursor++ != ':') return false;
+    while (*cursor == ' ' || *cursor == '\t' || *cursor == '\r' || *cursor == '\n') ++cursor;
+    char* end = nullptr;
+    const float parsed = strtof(cursor, &end);
+    if (!end || end == cursor || !std::isfinite(parsed)) return false;
+    while (*end == ' ' || *end == '\t' || *end == '\r' || *end == '\n') ++end;
+    if (*end != ',' && *end != '}') return false;
+    value = parsed;
+    return true;
+}
+
+bool extract_json_bool(const char* json, const char* key, bool& value) {
+    if (!json || !key) return false;
+    const String needle = "\"" + String(key) + "\"";
+    const char* cursor = strstr(json, needle.c_str());
+    if (!cursor) return false;
+    cursor += needle.length();
+    while (*cursor == ' ' || *cursor == '\t' || *cursor == '\r' || *cursor == '\n') ++cursor;
+    if (*cursor++ != ':') return false;
+    while (*cursor == ' ' || *cursor == '\t' || *cursor == '\r' || *cursor == '\n') ++cursor;
+    if (strncmp(cursor, "true", 4) == 0) {
+        cursor += 4;
+        while (*cursor == ' ' || *cursor == '\t' || *cursor == '\r' || *cursor == '\n') ++cursor;
+        if (*cursor != ',' && *cursor != '}') return false;
+        value = true;
+        return true;
+    }
+    if (strncmp(cursor, "false", 5) == 0) {
+        cursor += 5;
+        while (*cursor == ' ' || *cursor == '\t' || *cursor == '\r' || *cursor == '\n') ++cursor;
+        if (*cursor != ',' && *cursor != '}') return false;
+        value = false;
+        return true;
+    }
+    return false;
 }
 
 bool websocket_origin_allowed(AsyncWebServerRequest* request) {
@@ -134,6 +179,7 @@ void DeviceApi::init(AsyncWebServer* server, HardwareManager* hardware,
     configure_settings_routes(server);
     // Avoid mistaking a previous boot's result for a newly queued request.
     next_settings_id_ = esp_random();
+    load_safety_config();
     refresh_settings_cache();
     initialized_ = true;
 }
@@ -201,17 +247,50 @@ bool DeviceApi::process_commands() {
                 }
                 const auto profile = profile_controller_->snapshot();
                 const GrindMode mode = profile.mode;
+                const auto safety = get_safety_config();
                 WeightSensor* sensor = hardware_->get_weight_sensor();
                 if (mode == GrindMode::WEIGHT &&
-                    (!sensor || sensor->has_hardware_fault())) {
+                    (!sensor || sensor->has_hardware_fault() || !sensor->has_recent_sample())) {
                     send_ack(command, "start", false, "load cell is not ready");
                     break;
                 }
+                float target_weight = profile.profiles[profile.current_profile].weight;
+                if (command.has_target_weight) {
+                    if (!remote_safety::validate_remote_target_weight(command.target_weight)) {
+                        send_ack(command, "start", false, "invalid_weight");
+                        break;
+                    }
+                    target_weight = command.target_weight;
+                } else if (mode == GrindMode::WEIGHT &&
+                           !remote_safety::validate_remote_target_weight(target_weight)) {
+                    send_ack(command, "start", false, "invalid_weight");
+                    break;
+                }
+                const bool require_cup = command.has_require_cup
+                                             ? command.require_cup
+                                             : safety.require_cup_on_remote;
+                if (mode == GrindMode::WEIGHT && require_cup) {
+                    float gross_g = 0.0f;
+                    float range_g = 0.0f;
+                    const auto interlock = evaluate_live_cup_interlock(&gross_g, &range_g);
+                    if (interlock != remote_safety::CupInterlockStatus::OK) {
+                        LOG_BLE("[SAFETY] Remote start rejected: %s (gross=%.1fg, range=%.2fg, min=%.1fg, max=%.1fg)\n",
+                                remote_safety::cup_interlock_reason(interlock),
+                                gross_g, range_g, safety.cup_min_weight_g, safety.cup_max_weight_g);
+                        send_ack(command, "start", false, remote_safety::cup_interlock_reason(interlock));
+                        break;
+                    }
+                }
                 grind_controller_->set_grind_profile_id(profile.current_profile);
-                const float target_weight = profile.profiles[profile.current_profile].weight;
                 const uint32_t target_time_ms = static_cast<uint32_t>(
                     profile.profiles[profile.current_profile].time_seconds * 1000.0f + 0.5f);
-                const bool started = grind_controller_->start_grind(target_weight, target_time_ms, mode);
+                RemoteGrindOptions remote_opts;
+                remote_opts.is_remote = true;
+                remote_opts.skip_purge_confirm = true;
+                remote_opts.max_grind_time_s = safety.remote_max_grind_time_s;
+                remote_opts.no_flow_timeout_ms = safety.no_flow_timeout_ms;
+                remote_opts.no_flow_min_weight_g = safety.no_flow_min_weight_g;
+                const bool started = grind_controller_->start_grind(target_weight, target_time_ms, mode, remote_opts);
                 send_ack(command, "start", started, started ? "grind started" : "grind could not start");
                 break;
             }
@@ -406,6 +485,16 @@ void DeviceApi::queue_command(uint32_t client_id, const uint8_t* data, size_t le
     if (contains_json_string(json, "action", "start")) {
         action = "start";
         command.action = CommandAction::START;
+        float parsed_weight = 0.0f;
+        if (extract_json_float(json, "target_weight", parsed_weight)) {
+            command.has_target_weight = true;
+            command.target_weight = parsed_weight;
+        }
+        bool parsed_require_cup = true;
+        if (extract_json_bool(json, "require_cup", parsed_require_cup)) {
+            command.has_require_cup = true;
+            command.require_cup = parsed_require_cup;
+        }
     } else if (contains_json_string(json, "action", "start_manual")) {
         action = "start_manual";
         command.action = CommandAction::START_MANUAL;
@@ -449,6 +538,98 @@ void DeviceApi::queue_command(uint32_t client_id, const uint8_t* data, size_t le
 }
 
 void DeviceApi::configure_settings_routes(AsyncWebServer* server) {
+    server->on(AsyncURIMatcher::exact("/api/v1/safety"), HTTP_GET, [this](AsyncWebServerRequest* request) {
+        AsyncWebServerResponse* response = request->beginResponse(200, "application/json", safety_json());
+        response->addHeader("Cache-Control", "no-store");
+        request->send(response);
+    });
+    server->on(AsyncURIMatcher::exact("/api/v1/safety"), HTTP_POST, [this](AsyncWebServerRequest* request) {
+        if (!websocket_origin_allowed(request)) {
+            request->send(403, "application/json", "{\"error\":\"Request origin is not allowed\"}");
+            return;
+        }
+        remote_safety::RemoteSafetyConfig updated = get_safety_config();
+        if (request->hasParam("require_cup_on_remote", true)) {
+            updated.require_cup_on_remote = form_bool(request->getParam("require_cup_on_remote", true)->value());
+        }
+        if (request->hasParam("cup_min_weight_g", true)) {
+            updated.cup_min_weight_g = request->getParam("cup_min_weight_g", true)->value().toFloat();
+        }
+        if (request->hasParam("cup_max_weight_g", true)) {
+            updated.cup_max_weight_g = request->getParam("cup_max_weight_g", true)->value().toFloat();
+        }
+        if (request->hasParam("remote_max_grind_time_s", true)) {
+            updated.remote_max_grind_time_s = static_cast<uint16_t>(
+                request->getParam("remote_max_grind_time_s", true)->value().toInt());
+        }
+        if (request->hasParam("no_flow_timeout_ms", true)) {
+            updated.no_flow_timeout_ms = static_cast<uint16_t>(
+                request->getParam("no_flow_timeout_ms", true)->value().toInt());
+        }
+        if (request->hasParam("no_flow_min_weight_g", true)) {
+            updated.no_flow_min_weight_g = request->getParam("no_flow_min_weight_g", true)->value().toFloat();
+        }
+        if (request->hasParam("wifi_tx_power_dbm", true)) {
+            const long raw_tx = request->getParam("wifi_tx_power_dbm", true)->value().toInt();
+            if (raw_tx < 0 || raw_tx > 255) {
+                request->send(400, "application/json", "{\"error\":\"Invalid wifi_tx_power_dbm\"}");
+                return;
+            }
+            updated.wifi_tx_power_dbm = static_cast<uint8_t>(raw_tx);
+        }
+        if (!remote_safety::validate_safety_config(updated)) {
+            request->send(400, "application/json", "{\"error\":\"Invalid safety parameters\"}");
+            return;
+        }
+        if (!save_safety_config(updated)) {
+            request->send(500, "application/json", "{\"error\":\"Failed to persist safety settings\"}");
+            return;
+        }
+        if (grind_controller_) {
+            if (request->hasParam("adaptive_coast_enabled", true)) {
+                grind_controller_->set_adaptive_coast_enabled(
+                    form_bool(request->getParam("adaptive_coast_enabled", true)->value()));
+            }
+            if (request->hasParam("reset_adaptive_coast", true) &&
+                form_bool(request->getParam("reset_adaptive_coast", true)->value())) {
+                grind_controller_->reset_adaptive_coast();
+            }
+        }
+        AsyncWebServerResponse* response = request->beginResponse(200, "application/json", safety_json());
+        response->addHeader("Cache-Control", "no-store");
+        request->send(response);
+    });
+    server->on(AsyncURIMatcher::exact("/api/v1/safety/calibrate-empty"), HTTP_POST, [this](AsyncWebServerRequest* request) {
+        if (!websocket_origin_allowed(request)) {
+            request->send(403, "application/json", "{\"error\":\"Request origin is not allowed\"}");
+            return;
+        }
+        if (grind_controller_->get_phase() != GrindPhase::IDLE) {
+            request->send(409, "application/json", "{\"error\":\"Grinder must be idle to calibrate empty holder\"}");
+            return;
+        }
+        WeightSensor* sensor = hardware_->get_weight_sensor();
+        if (!sensor || sensor->has_hardware_fault() || !sensor->has_recent_sample()) {
+            request->send(503, "application/json", "{\"error\":\"Load cell is not ready\"}");
+            return;
+        }
+        const float range_g = sensor->get_weight_range(500);
+        if (!std::isfinite(range_g) || range_g > remote_safety::kMaxInterlockRangeG) {
+            request->send(409, "application/json", "{\"error\":\"scale_unstable\"}");
+            return;
+        }
+        remote_safety::RemoteSafetyConfig updated = get_safety_config();
+        updated.empty_holder_raw = sensor->get_raw_adc_smoothed(500);
+        updated.empty_holder_calibrated = true;
+        if (!save_safety_config(updated)) {
+            request->send(500, "application/json", "{\"error\":\"Failed to save empty holder calibration\"}");
+            return;
+        }
+        LOG_BLE("[SAFETY] Calibrated empty_holder_raw=%ld\n", static_cast<long>(updated.empty_holder_raw));
+        AsyncWebServerResponse* response = request->beginResponse(200, "application/json", safety_json());
+        response->addHeader("Cache-Control", "no-store");
+        request->send(response);
+    });
     server->on(AsyncURIMatcher::exact("/api/v1/settings/result"), HTTP_GET, [this](AsyncWebServerRequest* request) {
         uint32_t id = 0;
         bool valid = request->hasParam("id");
@@ -860,6 +1041,114 @@ void DeviceApi::send_ack(const Command& command, const char* action, bool accept
              action, accepted, reason);
 }
 
+void DeviceApi::load_safety_config() {
+    remote_safety::RemoteSafetyConfig loaded{};
+    Preferences prefs;
+    if (prefs.begin(remote_safety::kNvsNamespace, true)) {
+        loaded.require_cup_on_remote = prefs.getBool(remote_safety::kKeyRequireCup, loaded.require_cup_on_remote);
+        loaded.empty_holder_calibrated = prefs.getBool(remote_safety::kKeyEmptyCal, loaded.empty_holder_calibrated);
+        loaded.empty_holder_raw = prefs.getInt(remote_safety::kKeyEmptyRaw, loaded.empty_holder_raw);
+        loaded.cup_min_weight_g = prefs.getFloat(remote_safety::kKeyCupMinG, loaded.cup_min_weight_g);
+        loaded.cup_max_weight_g = prefs.getFloat(remote_safety::kKeyCupMaxG, loaded.cup_max_weight_g);
+        loaded.remote_max_grind_time_s = prefs.getUShort(remote_safety::kKeyMaxTimeS, loaded.remote_max_grind_time_s);
+        loaded.no_flow_timeout_ms = prefs.getUShort(remote_safety::kKeyNoFlowMs, loaded.no_flow_timeout_ms);
+        loaded.no_flow_min_weight_g = prefs.getFloat(remote_safety::kKeyNoFlowG, loaded.no_flow_min_weight_g);
+        loaded.wifi_tx_power_dbm = prefs.getUChar(remote_safety::kKeyWifiTxDbm, loaded.wifi_tx_power_dbm);
+        prefs.end();
+    }
+    if (!remote_safety::validate_safety_config(loaded)) {
+        loaded = remote_safety::RemoteSafetyConfig{};
+    }
+    if (settings_mutex_) xSemaphoreTake(settings_mutex_, portMAX_DELAY);
+    safety_config_ = loaded;
+    if (settings_mutex_) xSemaphoreGive(settings_mutex_);
+    network_manager.set_tx_power_dbm(loaded.wifi_tx_power_dbm);
+}
+
+bool DeviceApi::save_safety_config(const remote_safety::RemoteSafetyConfig& cfg) {
+    if (!remote_safety::validate_safety_config(cfg)) return false;
+    Preferences prefs;
+    if (!prefs.begin(remote_safety::kNvsNamespace, false)) return false;
+    bool ok = true;
+    ok = ok && (prefs.putBool(remote_safety::kKeyRequireCup, cfg.require_cup_on_remote) > 0);
+    ok = ok && (prefs.putBool(remote_safety::kKeyEmptyCal, cfg.empty_holder_calibrated) > 0);
+    ok = ok && (prefs.putInt(remote_safety::kKeyEmptyRaw, cfg.empty_holder_raw) > 0);
+    ok = ok && (prefs.putFloat(remote_safety::kKeyCupMinG, cfg.cup_min_weight_g) > 0);
+    ok = ok && (prefs.putFloat(remote_safety::kKeyCupMaxG, cfg.cup_max_weight_g) > 0);
+    ok = ok && (prefs.putUShort(remote_safety::kKeyMaxTimeS, cfg.remote_max_grind_time_s) > 0);
+    ok = ok && (prefs.putUShort(remote_safety::kKeyNoFlowMs, cfg.no_flow_timeout_ms) > 0);
+    ok = ok && (prefs.putFloat(remote_safety::kKeyNoFlowG, cfg.no_flow_min_weight_g) > 0);
+    ok = ok && (prefs.putUChar(remote_safety::kKeyWifiTxDbm, cfg.wifi_tx_power_dbm) > 0);
+    prefs.end();
+    if (!ok) return false;
+
+    if (settings_mutex_) xSemaphoreTake(settings_mutex_, portMAX_DELAY);
+    safety_config_ = cfg;
+    if (settings_mutex_) xSemaphoreGive(settings_mutex_);
+    network_manager.set_tx_power_dbm(cfg.wifi_tx_power_dbm);
+    return true;
+}
+
+remote_safety::RemoteSafetyConfig DeviceApi::get_safety_config() const {
+    if (settings_mutex_) xSemaphoreTake(settings_mutex_, portMAX_DELAY);
+    const auto copy = safety_config_;
+    if (settings_mutex_) xSemaphoreGive(settings_mutex_);
+    return copy;
+}
+
+remote_safety::CupInterlockStatus DeviceApi::evaluate_live_cup_interlock(
+    float* gross_weight_out, float* range_out) const {
+    const auto cfg = get_safety_config();
+    WeightSensor* sensor = hardware_ ? hardware_->get_weight_sensor() : nullptr;
+    if (!sensor || sensor->has_hardware_fault() || !sensor->has_recent_sample()) {
+        if (gross_weight_out) *gross_weight_out = 0.0f;
+        if (range_out) *range_out = 999.0f;
+        return remote_safety::CupInterlockStatus::SCALE_UNSTABLE;
+    }
+    const int32_t raw_smoothed = sensor->get_raw_adc_smoothed(500);
+    const int32_t ref_raw = cfg.empty_holder_calibrated ? cfg.empty_holder_raw : sensor->get_zero_offset();
+    const float gross_g = remote_safety::gross_weight_from_raw(raw_smoothed, ref_raw, sensor->get_calibration_factor());
+    const float range_g = sensor->get_weight_range(500);
+    if (gross_weight_out) *gross_weight_out = gross_g;
+    if (range_out) *range_out = range_g;
+    return remote_safety::evaluate_cup_interlock(gross_g, range_g, cfg);
+}
+
+String DeviceApi::safety_json() {
+    const auto cfg = get_safety_config();
+    float gross_g = 0.0f;
+    float range_g = 0.0f;
+    const auto status = evaluate_live_cup_interlock(&gross_g, &range_g);
+    const auto adaptive = grind_controller_
+                              ? grind_controller_->get_adaptive_coast_state()
+                              : adaptive_grind::AdaptiveCoastState{};
+    char json[640];
+    snprintf(json, sizeof(json),
+             "{\"api\":\"v1\",\"require_cup_on_remote\":%s,"
+             "\"empty_holder_calibrated\":%s,\"empty_holder_raw\":%ld,"
+             "\"cup_min_weight_g\":%.1f,\"cup_max_weight_g\":%.1f,"
+             "\"remote_max_grind_time_s\":%u,"
+             "\"no_flow_timeout_ms\":%u,\"no_flow_min_weight_g\":%.2f,"
+             "\"wifi_tx_power_dbm\":%u,"
+             "\"adaptive_coast\":{\"enabled\":%s,\"learned_coast_time_ms\":%.1f,"
+             "\"reference_flow_gps\":%.2f,\"sample_count\":%lu},"
+             "\"live\":{\"gross_weight_g\":%.2f,\"weight_range_g\":%.2f,\"cup_status\":\"%s\"}}",
+             cfg.require_cup_on_remote ? "true" : "false",
+             cfg.empty_holder_calibrated ? "true" : "false",
+             static_cast<long>(cfg.empty_holder_raw),
+             cfg.cup_min_weight_g, cfg.cup_max_weight_g,
+             static_cast<unsigned>(cfg.remote_max_grind_time_s),
+             static_cast<unsigned>(cfg.no_flow_timeout_ms),
+             cfg.no_flow_min_weight_g,
+             static_cast<unsigned>(cfg.wifi_tx_power_dbm),
+             adaptive.enabled ? "true" : "false",
+             adaptive.learned_coast_time_ms,
+             adaptive.reference_flow_gps,
+             static_cast<unsigned long>(adaptive.sample_count),
+             gross_g, range_g, remote_safety::cup_interlock_reason(status));
+    return String(json);
+}
+
 String DeviceApi::build_state_message() {
     // Capture profile data before taking controller access; profile persistence
     // must not hold up the motor control loop through a network reader.
@@ -880,13 +1169,17 @@ String DeviceApi::build_state_message() {
     const float weight = sensor ? sensor->get_display_weight() : 0.0f;
     const float flow = sensor ? sensor->get_flow_rate() : 0.0f;
     const bool motor_running = grinder && grinder->is_grinding();
+    float gross_g = 0.0f;
+    const auto cup_status = evaluate_live_cup_interlock(&gross_g, nullptr);
+    char last_error[32] = {0};
+    grind_controller_->get_last_error_message(last_error, sizeof(last_error));
 
-    char message[640];
+    char message[768];
     snprintf(message, sizeof(message),
              "{\"api\":\"v1\",\"type\":\"state\",\"seq\":%lu,\"timestamp_ms\":%lu,"
              "\"grind\":{\"active\":%s,\"phase\":\"%s\",\"mode\":\"%s\",\"profile\":%d,\"progress\":%d,"
-             "\"target_weight\":%.2f,\"target_time_ms\":%lu},"
-             "\"scale\":{\"weight\":%.2f,\"flow\":%.2f},"
+             "\"target_weight\":%.2f,\"target_time_ms\":%lu,\"last_error\":\"%s\"},"
+             "\"scale\":{\"weight\":%.2f,\"flow\":%.2f,\"gross_weight_g\":%.2f,\"cup_status\":\"%s\"},"
              "\"motor\":{\"running\":%s},\"system\":{\"free_heap\":%u}}",
              static_cast<unsigned long>(sequence_.fetch_add(1) + 1), static_cast<unsigned long>(millis()),
              grind_controller_->is_active() ? "true" : "false",
@@ -896,7 +1189,9 @@ String DeviceApi::build_state_message() {
              grind_controller_->get_current_progress_percent(),
              target_weight,
              static_cast<unsigned long>(target_time_ms),
-             weight, flow, motor_running ? "true" : "false",
+             last_error,
+             weight, flow, gross_g, remote_safety::cup_interlock_reason(cup_status),
+             motor_running ? "true" : "false",
              static_cast<unsigned int>(ESP.getFreeHeap()));
     return String(message);
 }
