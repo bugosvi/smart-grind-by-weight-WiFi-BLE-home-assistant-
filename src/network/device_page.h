@@ -791,6 +791,36 @@ function updateCupBadge(el,status,gross){
   el.className=m.cls;
   el.lastElementChild.textContent=m.text;
 }
+/* Plain-language text for the reason codes the grinder reports. */
+const ACK_REASONS={
+  no_cup_detected:'No cup or portafilter on the fork. Place it and press start again.',
+  cup_already_full:'The cup on the fork already holds coffee. Empty it and press start again.',
+  scale_unstable:'The scale is still settling. Wait a moment and press start again.',
+  empty_holder_uncalibrated:'Calibrate the empty fork first: Settings → Precision & Safety.',
+  invalid_weight:'That dose is outside the allowed remote range.',
+  'grinder is not idle':'The grinder is busy. Wait for it to finish, or dismiss the last result.',
+  'load cell is not ready':'The scale is not ready yet. Wait a moment and try again.',
+  'grind could not start':'The grinder could not start. Check its screen for a message.',
+  'firmware update is active':'A firmware update is running. Try again when it finishes.',
+  'command queue busy':'The grinder is handling another command. Try again.'
+};
+function ackText(reason){
+  const text=ACK_REASONS[reason]||String(reason||'');
+  return text.charAt(0).toUpperCase()+text.slice(1);
+}
+function grindErrorText(code){
+  const limit=state.safety?.remote_max_grind_time_s;
+  if(code==='no_beans_or_jam')return 'No coffee came out. Check that the hopper has beans and the burrs are not jammed.';
+  if(code==='Err: neg wt')return 'The cup was removed during the grind, so the grinder stopped.';
+  if(code==='Err: no wt')return 'No coffee reached the cup. Check the hopper and the chute.';
+  if(code==='Scale disconnected')return 'The scale stopped responding. Check the load cell connection.';
+  if(code==='30s safety limit')return 'Manual grinding stopped at its 30-second safety limit.';
+  if(/^Timeout/.test(code||'')){
+    return 'The grind reached its time limit and was stopped.'+
+      (limit?` Grinds started from here are limited to ${limit} s; you can raise this under Settings → Precision & Safety.`:'');
+  }
+  return code?`The grind stopped: ${code}`:'The grind stopped before finishing.';
+}
 function render(s){
   const g=s.grind,terminal=['COMPLETED','TIMEOUT'].includes(g.phase),wasTerminal=['COMPLETED','TIMEOUT'].includes(lastPhase);
   const sampling=g.active&&!terminal,idle=g.phase==='IDLE',flow=stableFlow(s.scale.flow,sampling),control=$('grindButton');
@@ -828,7 +858,16 @@ function render(s){
     liveSamples.push(s.scale.weight);liveFlows.push(flow);
     if(liveSamples.length>600){liveSamples.shift();liveFlows.shift();}
   }
-  if(terminal&&!wasTerminal){syncCompletedTrace();loadNote();loadSafety();}
+  if(terminal&&!wasTerminal){
+    syncCompletedTrace();loadNote();loadSafety();
+    if(g.phase==='TIMEOUT'){
+      const why=grindErrorText(g.last_error);
+      $('commandMessage').textContent=why;toast(why,true);
+    }else{
+      $('commandMessage').textContent=g.mode==='weight'?`Done: ${s.scale.weight.toFixed(2)} g of ${g.target_weight.toFixed(1)} g.`:'Grind finished.';
+    }
+  }
+  if(idle&&lastPhase!=='IDLE')$('commandMessage').textContent='';
   lastPhase=g.phase;
   if(state.page==='dashboard')drawLive();
 }
@@ -860,8 +899,9 @@ function connect(){
     if(m.type==='state')render(m);
     if(m.type==='ack'){
       commandPending=false;
-      $('commandMessage').textContent=m.reason;
-      toast(m.reason,!m.accepted);
+      const text=ackText(m.reason);
+      $('commandMessage').textContent=text;
+      toast(text,!m.accepted);
       if(m.action==='set_mode'&&m.accepted)loadDashboardProfiles();
     }
   };
@@ -1296,6 +1336,7 @@ function renderSafety(s){
   $('cupMinWeight').value=s.cup_min_weight_g;
   $('cupMaxWeight').value=s.cup_max_weight_g;
   $('remoteMaxTime').value=s.remote_max_grind_time_s;
+  $('remoteMaxWeight').value=s.remote_max_weight_g;
   $('noFlowTimeout').value=s.no_flow_timeout_ms;
   $('noFlowMinWeight').value=s.no_flow_min_weight_g;
   $('wifiTxPower').value=String(s.wifi_tx_power_dbm??0);
@@ -1318,6 +1359,14 @@ $('saveSafetyBtn').onclick=async()=>{
     if(![cupMin,cupMax,maxTime,maxDose,noFlowMs,noFlowG,txDbm].every(Number.isFinite)){
       throw new Error('Enter valid numbers for all safety fields');
     }
+    if(cupMin<5||cupMax>950||cupMax<=cupMin)throw new Error('Cup weights must be 5–950 g, with max above min');
+    if(maxTime<10||maxTime>60)throw new Error('Remote max grind time must be 10–60 s');
+    if(maxDose<4||maxDose>120)throw new Error('Remote max dose must be 4–120 g');
+    if(noFlowMs!==0&&(noFlowMs<1500||noFlowMs>10000))throw new Error('No-flow watchdog must be 0 (off) or 1500–10000 ms');
+    if(noFlowG<0.1||noFlowG>3)throw new Error('No-flow min gain must be 0.1–3.0 g');
+    if($('requireCupRemote').checked&&!state.safety?.empty_holder_calibrated){
+      throw new Error('Calibrate the empty fork before requiring a cup for remote grinds');
+    }
     const body={
       adaptive_grind_enabled:state.adaptiveEnabled,
       adaptive_coast_enabled:$('adaptiveCoastEnabled').checked,
@@ -1325,6 +1374,7 @@ $('saveSafetyBtn').onclick=async()=>{
       cup_min_weight_g:cupMin,
       cup_max_weight_g:cupMax,
       remote_max_grind_time_s:maxTime,
+      remote_max_weight_g:maxDose,
       no_flow_timeout_ms:noFlowMs,
       no_flow_min_weight_g:noFlowG,
       wifi_tx_power_dbm:txDbm
@@ -1337,7 +1387,6 @@ $('saveSafetyBtn').onclick=async()=>{
   finally{$('saveSafetyBtn').disabled=false;}
 };
 $('resetCoastBtn').onclick=async()=>{
-  $('remoteMaxWeight').value=s.remote_max_weight_g;
   if(!confirm('Reset learned coast time back to factory baseline?'))return;
   try{
     const updated=await api('/api/v1/safety',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({reset_adaptive_coast:true})});
@@ -1374,7 +1423,6 @@ function renderOtaStatus(s){
 async function refreshStatus(){
   try{
     const s=await api('/api/v1/status');state.deviceStatus=s;
-      remote_max_weight_g:maxDose,
     $('firmware').textContent=`${s.firmware.version} · build ${s.firmware.build}`;
     $('hardware').textContent=`${s.device.model} (${s.device.hardware_revision.toUpperCase()})`;
     $('deviceId').textContent=s.device.id;
