@@ -49,6 +49,7 @@ void MenuUIController::register_events() {
     EventBridgeLVGL::register_handler(ET::LOGGING_TOGGLE, [this](lv_event_t*) { handle_logging_toggle(); });
 
     EventBridgeLVGL::register_handler(ET::GRIND_MODE_SWIPE_TOGGLE, [this](lv_event_t*) { handle_grind_mode_swipe_toggle(); });
+    EventBridgeLVGL::register_handler(ET::MANUAL_HOLD_TOGGLE, [this](lv_event_t*) { handle_manual_hold_toggle(); });
     EventBridgeLVGL::register_handler(ET::GRIND_MODE_RADIO_BUTTON, [this](lv_event_t*) { handle_grind_mode_radio_button(); });
     EventBridgeLVGL::register_handler(ET::AUTO_START_TOGGLE, [this](lv_event_t*) { handle_auto_start_toggle(); });
     EventBridgeLVGL::register_handler(ET::AUTO_START_THRESHOLD_SLIDER, [this](lv_event_t*) { handle_auto_start_threshold_slider(); });
@@ -342,6 +343,22 @@ void MenuUIController::handle_grind_mode_swipe_toggle() {
     prefs.end();
 
     LOG_DEBUG_PRINTLN(swipe_enabled ? "Grind mode swipe gestures enabled" : "Grind mode swipe gestures disabled");
+}
+
+void MenuUIController::handle_manual_hold_toggle() {
+    if (!ui_manager_) return;
+
+    auto* toggle = ui_manager_->menu_screen.get_manual_hold_toggle();
+    if (!toggle) return;
+
+    bool hold_enabled = lv_obj_has_state(toggle, LV_STATE_CHECKED);
+
+    Preferences prefs;
+    prefs.begin("manual", false);
+    prefs.putBool("hold", hold_enabled);
+    prefs.end();
+
+    LOG_DEBUG_PRINTLN(hold_enabled ? "Manual mode set to Hold-to-Grind" : "Manual mode set to Start/Stop");
 }
 
 void MenuUIController::handle_grind_mode_radio_button() {

@@ -569,6 +569,7 @@ textarea{resize:vertical;min-height:92px;line-height:1.45}
               <label class="check"><input id="autoStart" type="checkbox"><span>Auto-start when cup is placed</span></label>
               <label class="check"><input id="autoReturn" type="checkbox"><span>Return when cup is removed</span></label>
               <label class="check"><input id="swipeEnabled" type="checkbox"><span>Swipe between grind modes</span></label>
+              <label class="check"><input id="manualHoldMode" type="checkbox"><span>Manual tab: hold button to grind (off = Start/Stop)</span></label>
               <label class="check"><input id="loggingEnabled" type="checkbox"><span>Save grind history</span></label>
             </div>
             <div class="formgrid" style="margin-top:14px">
@@ -1489,7 +1490,7 @@ async function loadSettings({throwOnError=false}={}){
     $('currentProfile').value=s.current_profile;$('grindMode').value=s.grind_mode;
     s.profiles.forEach((p,i)=>{$(`weight${i}`).value=p.weight;$(`time${i}`).value=p.time;});
     setCheck('autoStart',s.automatic.start);$('autoStartThreshold').value=s.automatic.threshold_g??50;
-    setCheck('autoReturn',s.automatic.return);setCheck('swipeEnabled',s.swipe_enabled);setCheck('loggingEnabled',s.logging_enabled);
+    setCheck('autoReturn',s.automatic.return);setCheck('swipeEnabled',s.swipe_enabled);setCheck('manualHoldMode',!!s.manual_hold_mode);setCheck('loggingEnabled',s.logging_enabled);
     $('purgeMode').value=s.purge.mode;$('purgeAmount').value=s.purge.amount_g;$('freshness').value=s.purge.freshness_hours;
     $('motorLatency').value=s.motor_latency_ms??50;$('coastRatio').value=s.coast_ratio;
     $('brightness').value=s.display.brightness;$('screensaverBrightness').value=s.display.screensaver_brightness;
@@ -1516,6 +1517,7 @@ function settingsBody(){
     current_profile:$('currentProfile').value,grind_mode:$('grindMode').value==='time'?'1':'0',
     auto_start:$('autoStart').checked?'1':'0',auto_start_threshold_g:$('autoStartThreshold').value,
     auto_return:$('autoReturn').checked?'1':'0',swipe_enabled:$('swipeEnabled').checked?'1':'0',
+    manual_hold_mode:$('manualHoldMode').checked?'1':'0',
     logging_enabled:$('loggingEnabled').checked?'1':'0',purge_mode:$('purgeMode').value,
     purge_amount_g:$('purgeAmount').value,freshness_hours:$('freshness').value,
     motor_latency_ms:$('motorLatency').value,coast_ratio:$('coastRatio').value,

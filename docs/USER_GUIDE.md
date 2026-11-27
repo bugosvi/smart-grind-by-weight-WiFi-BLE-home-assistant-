@@ -13,13 +13,16 @@ the [documentation home](DOC.md).
 
 ### Manual Grinding
 
-**Manual** is the first page in the main-screen carousel. Tap **START** to run
-the grinder without a weight or time target, then tap **STOP** when the desired
-amount has been ground. When a healthy load cell is fitted, the page shows a
-large live weight and a large **TARE** button. Put the empty cup in place and
-tap **TARE** if you want to weigh the result; taring is never automatic in
-Manual mode. During grinding, the screen shows live weight and elapsed motor
-time.
+**Manual** is the first page in the main-screen carousel. By default it uses
+**Start / Stop** mode: tap **START** to run the grinder without a weight or time
+target, then tap **STOP** when the desired amount has been ground. You can
+switch to **Hold-to-Grind** mode (press and hold the button while grinding,
+release to stop immediately) via **Menu → Grind Settings → Manual Hold** or in
+**Smart Grind Studio → Settings**. When a healthy load cell is fitted, the page
+shows a large live weight and a large **TARE** button. Put the empty cup in
+place and tap **TARE** if you want to weigh the result; taring is never
+automatic in Manual mode. During grinding, the screen shows live weight and
+elapsed motor time.
 
 Manual start/stop works without a load cell; the scale readout and TARE button
 simply report that the scale is unavailable. Manual mode deliberately skips

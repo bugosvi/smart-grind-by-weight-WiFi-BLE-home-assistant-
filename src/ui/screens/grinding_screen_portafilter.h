@@ -73,7 +73,6 @@ private:
 
     // Live weight readout + mini-chart + status badge
     lv_obj_t* weight_label_ = nullptr;
-    lv_obj_t* finish_ring_ = nullptr;
     lv_obj_t* chart_ = nullptr;
     lv_chart_series_t* weight_series_ = nullptr;
     lv_chart_series_t* flow_series_ = nullptr;
@@ -119,7 +118,6 @@ private:
 
     char displayed_weight_text_[16]{};
     char displayed_target_text_[64]{};
-    int8_t finish_frame_ = -1;      // -1 while no finish pulse is playing
     char displayed_flow_text_[24]{};
     char displayed_status_text_[20]{};
 
@@ -133,9 +131,6 @@ private:
     void apply_mound_shape(const MoundShape& shape);
     void refresh_visual_accent();
     void set_status_badge(const char* text, uint32_t color_hex);
-    void start_finish_pulse();
-    void stop_finish_pulse();
-    void advance_finish_pulse();
     void hide_all_particles();
     void reset_particle(Particle& p, float flow_norm);
     uint32_t next_rand();

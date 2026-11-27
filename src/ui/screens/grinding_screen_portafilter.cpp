@@ -44,14 +44,6 @@ constexpr int16_t kMoundClipTopInset = 2;
 constexpr float kMoundEaseRate = 0.22f;
 constexpr float kMoundSnapFrac = 0.002f;
 
-// Finish pulse: one ring that expands from the basket and fades when a grind
-// completes. Drawn on the screen (not the stage) so it is not clipped.
-constexpr int16_t kFinishRingCenterY = kStageY + (kRimY + kBasketBottomY) / 2;
-constexpr int16_t kFinishRingStartD = 40;
-constexpr int16_t kFinishRingEndD = 76;
-constexpr int16_t kFinishRingWidth = 3;
-constexpr int8_t kFinishRingFrames = 15;  // 600 ms at the 40 ms animation period
-
 constexpr uint32_t kColorInTolerance = 0x00E676;
 constexpr uint32_t kColorOvershoot = 0xFFB300;
 
@@ -328,15 +320,6 @@ void GrindingScreenPortafilter::create() {
     lv_obj_set_style_arc_width(tare_spinner_, 3, LV_PART_INDICATOR);
     lv_obj_remove_style(tare_spinner_, nullptr, LV_PART_KNOB);
     lv_obj_add_flag(tare_spinner_, LV_OBJ_FLAG_HIDDEN);
-
-    // --- FINISH PULSE RING (created before the weight readout so it draws behind it) ---
-    finish_ring_ = lv_obj_create(screen_);
-    lv_obj_set_style_bg_opa(finish_ring_, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(finish_ring_, kFinishRingWidth, 0);
-    lv_obj_set_style_radius(finish_ring_, LV_RADIUS_CIRCLE, 0);
-    lv_obj_set_style_pad_all(finish_ring_, 0, 0);
-    lv_obj_clear_flag(finish_ring_, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_flag(finish_ring_, LV_OBJ_FLAG_HIDDEN);
 
     // --- LIVE WEIGHT READOUT ---
     weight_label_ = lv_label_create(screen_);
@@ -669,7 +652,6 @@ void GrindingScreenPortafilter::update_phase(GrindPhase phase, bool paused) {
 }
 
 void GrindingScreenPortafilter::set_completed(bool completed, bool overshoot, float final_weight_g) {
-    const bool just_completed = completed && !completed_;
     completed_ = completed;
     overshoot_ = completed ? overshoot : false;
 
@@ -685,11 +667,6 @@ void GrindingScreenPortafilter::set_completed(bool completed, bool overshoot, fl
         update_target_weight(target_weight_g_);
     }
     deviation_shown_ = show_deviation;
-    if (just_completed) {
-        start_finish_pulse();
-    } else if (!completed_) {
-        stop_finish_pulse();
-    }
 
     if (completed_) {
         error_ = false;
@@ -892,39 +869,6 @@ void GrindingScreenPortafilter::apply_mound_shape(const MoundShape& shape) {
     }
 }
 
-void GrindingScreenPortafilter::start_finish_pulse() {
-    if (!finish_ring_) return;
-    lv_obj_set_style_border_color(
-        finish_ring_, lv_color_hex(overshoot_ ? kColorOvershoot : kColorInTolerance), 0);
-    finish_frame_ = 0;
-}
-
-void GrindingScreenPortafilter::stop_finish_pulse() {
-    finish_frame_ = -1;
-    if (finish_ring_) {
-        lv_obj_add_flag(finish_ring_, LV_OBJ_FLAG_HIDDEN);
-    }
-}
-
-void GrindingScreenPortafilter::advance_finish_pulse() {
-    if (finish_frame_ < 0 || !finish_ring_) return;
-    if (finish_frame_ >= kFinishRingFrames) {
-        stop_finish_pulse();
-        return;
-    }
-    // Ease-out growth with a linear fade, so the ring slows as it disappears.
-    const float progress = static_cast<float>(finish_frame_) / kFinishRingFrames;
-    const float eased = 1.0f - (1.0f - progress) * (1.0f - progress);
-    const int16_t diameter = static_cast<int16_t>(
-        kFinishRingStartD + eased * (kFinishRingEndD - kFinishRingStartD));
-    lv_obj_set_size(finish_ring_, diameter, diameter);
-    lv_obj_set_pos(finish_ring_, kCenterX - diameter / 2, kFinishRingCenterY - diameter / 2);
-    lv_obj_set_style_border_opa(finish_ring_,
-                                static_cast<lv_opa_t>(LV_OPA_COVER * (1.0f - progress)), 0);
-    lv_obj_clear_flag(finish_ring_, LV_OBJ_FLAG_HIDDEN);
-    ++finish_frame_;
-}
-
 uint32_t GrindingScreenPortafilter::next_rand() {
     // Fast xorshift32 (zero heap, zero libc rand contention)
     uint32_t x = rng_state_;
@@ -961,7 +905,6 @@ void GrindingScreenPortafilter::step_animation() {
     if (!visible_) return;
 
     advance_mound();
-    advance_finish_pulse();
 
     // Spin taring arc smoothly while taring
     if (taring_ && tare_spinner_) {

@@ -42,6 +42,8 @@ struct DeviceSettingsUpdate {
     char gaggimate_host[64] = "gaggimate.local";
     bool has_grind_layout = false;
     int grind_layout = 0;
+    bool has_manual_hold_mode = false;
+    bool manual_hold_mode = false;
     bool bluetooth_startup = true;
 };
 

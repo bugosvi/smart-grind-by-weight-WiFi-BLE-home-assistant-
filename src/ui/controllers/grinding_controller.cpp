@@ -61,14 +61,24 @@ void GrindingUIController::register_events() {
 
     if (grind_button_) {
         lv_obj_add_event_cb(grind_button_, [](lv_event_t* e) {
-            if (lv_event_get_code(e) != LV_EVENT_CLICKED) {
+            auto* controller = static_cast<GrindingUIController*>(lv_event_get_user_data(e));
+            if (!controller) {
                 return;
             }
-            auto* controller = static_cast<GrindingUIController*>(lv_event_get_user_data(e));
-            if (controller) {
-                controller->handle_grind_button();
+            const lv_event_code_t code = lv_event_get_code(e);
+            if (code == LV_EVENT_PRESSED) {
+                controller->handle_grind_button_pressed();
+            } else if (code == LV_EVENT_RELEASED) {
+                controller->handle_grind_button_released();
+            } else if (code == LV_EVENT_PRESS_LOST) {
+                controller->handle_grind_button_released();
+                controller->clear_suppressed_click();
+            } else if (code == LV_EVENT_CLICKED) {
+                if (!controller->consume_suppressed_click()) {
+                    controller->handle_grind_button();
+                }
             }
-        }, LV_EVENT_CLICKED, this);
+        }, LV_EVENT_ALL, this);
     }
 
     if (pulse_button_) {
@@ -120,6 +130,10 @@ void GrindingUIController::register_events() {
 void GrindingUIController::on_state_changed(UIState new_state) {
     if (!ui_manager_) {
         return;
+    }
+
+    if (new_state != UIState::GRINDING && new_state != UIState::READY) {
+        manual_hold_active_ = false;
     }
 
     if (new_state != UIState::GRIND_COMPLETE && grind_complete_timer_) {
@@ -194,6 +208,57 @@ void GrindingUIController::update(UIState current_state) {
         }
         default:
             break;
+    }
+}
+
+bool GrindingUIController::is_manual_hold_enabled() const {
+    Preferences prefs;
+    if (!prefs.begin("manual", true)) {
+        return false;
+    }
+    const bool enabled = prefs.getBool("hold", false);
+    prefs.end();
+    return enabled;
+}
+
+void GrindingUIController::handle_grind_button_pressed() {
+    suppress_next_grind_click_ = false;
+    if (!ui_manager_ || !ui_manager_->state_machine || !ui_manager_->grind_controller) {
+        return;
+    }
+    if (!ui_manager_->state_machine->is_state(UIState::READY) ||
+        ui_manager_->current_tab != ReadyScreen::MANUAL_TAB_INDEX ||
+        !is_manual_hold_enabled()) {
+        return;
+    }
+
+    LOG_BLE("[%lums MANUAL_HOLD] Press start\n", millis());
+    error_message_[0] = '\0';
+    error_grind_weight_ = 0.0f;
+    error_grind_progress_ = 0;
+
+    suppress_next_grind_click_ = true;
+    const bool started = ui_manager_->grind_controller->start_grind(0.0f, 0, GrindMode::MANUAL);
+    if (started) {
+        manual_hold_active_ = true;
+    } else {
+        manual_hold_active_ = false;
+        ui_manager_->show_confirmation(
+            "Could not start", "Check scale and grinder.\nAn update may be active.",
+            "OK", lv_color_hex(THEME_COLOR_WARNING), nullptr, "BACK");
+    }
+}
+
+void GrindingUIController::handle_grind_button_released() {
+    if (!manual_hold_active_) {
+        return;
+    }
+    manual_hold_active_ = false;
+    if (ui_manager_ && ui_manager_->state_machine &&
+        ui_manager_->state_machine->is_state(UIState::GRINDING) &&
+        ui_manager_->grind_controller) {
+        LOG_BLE("[%lums MANUAL_HOLD] Release stop\n", millis());
+        ui_manager_->grind_controller->stop_grind();
     }
 }
 

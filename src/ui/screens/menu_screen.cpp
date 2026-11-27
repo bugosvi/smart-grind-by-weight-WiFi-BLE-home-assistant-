@@ -592,6 +592,9 @@ void MenuScreen::create_grind_mode_page(lv_obj_t* parent) {
     // Swipe toggle using existing pattern
     create_toggle_row(parent, "Swipe", &grind_mode_swipe_toggle);
 
+    create_description_label(parent, "Manual tab: hold button to grind (off = Start/Stop).");
+    create_toggle_row(parent, "Manual Hold", &manual_hold_toggle);
+
     // Automatic actions section
     create_separator(parent, "Automation");
     create_description_label(parent, "Start the selected profile as soon as the cup lands on the scale.");
@@ -661,6 +664,10 @@ void MenuScreen::create_grind_mode_page(lv_obj_t* parent) {
     if (grind_mode_swipe_toggle) {
         lv_obj_add_event_cb(grind_mode_swipe_toggle, EventBridgeLVGL::dispatch_event, LV_EVENT_VALUE_CHANGED,
                            reinterpret_cast<void*>(static_cast<intptr_t>(ET::GRIND_MODE_SWIPE_TOGGLE)));
+    }
+    if (manual_hold_toggle) {
+        lv_obj_add_event_cb(manual_hold_toggle, EventBridgeLVGL::dispatch_event, LV_EVENT_VALUE_CHANGED,
+                           reinterpret_cast<void*>(static_cast<intptr_t>(ET::MANUAL_HOLD_TOGGLE)));
     }
     if (auto_start_toggle) {
         lv_obj_add_event_cb(auto_start_toggle, EventBridgeLVGL::dispatch_event, LV_EVENT_VALUE_CHANGED,
@@ -1476,6 +1483,19 @@ void MenuScreen::update_grind_mode_toggles() {
             lv_obj_add_state(grind_mode_swipe_toggle, LV_STATE_CHECKED);
         } else {
             lv_obj_clear_state(grind_mode_swipe_toggle, LV_STATE_CHECKED);
+        }
+    }
+
+    Preferences manual_prefs;
+    manual_prefs.begin("manual", true); // read-only
+    bool manual_hold_enabled = manual_prefs.getBool("hold", false);
+    manual_prefs.end();
+
+    if (manual_hold_toggle) {
+        if (manual_hold_enabled) {
+            lv_obj_add_state(manual_hold_toggle, LV_STATE_CHECKED);
+        } else {
+            lv_obj_clear_state(manual_hold_toggle, LV_STATE_CHECKED);
         }
     }
 

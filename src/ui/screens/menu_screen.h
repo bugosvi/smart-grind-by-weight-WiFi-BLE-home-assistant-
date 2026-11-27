@@ -73,6 +73,7 @@ private:
     // Grind mode tab elements
     lv_obj_t* grind_mode_radio_group;
     lv_obj_t* grind_mode_swipe_toggle;
+    lv_obj_t* manual_hold_toggle = nullptr;
     lv_obj_t* auto_start_toggle;
     lv_obj_t* auto_start_threshold_slider;
     lv_obj_t* auto_start_threshold_label;
@@ -163,6 +164,7 @@ public:
     lv_obj_t* get_brightness_screensaver_slider() const { return brightness_screensaver_slider; }
     lv_obj_t* get_grind_mode_radio_group() const { return grind_mode_radio_group; }
     lv_obj_t* get_grind_mode_swipe_toggle() const { return grind_mode_swipe_toggle; }
+    lv_obj_t* get_manual_hold_toggle() const { return manual_hold_toggle; }
     lv_obj_t* get_auto_start_toggle() const { return auto_start_toggle; }
     lv_obj_t* get_auto_start_threshold_slider() const { return auto_start_threshold_slider; }
     lv_obj_t* get_auto_return_toggle() const { return auto_return_toggle; }

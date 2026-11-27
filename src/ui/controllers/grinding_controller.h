@@ -18,6 +18,14 @@ public:
     void update(UIState current_state);
 
     void handle_grind_button();
+    void handle_grind_button_pressed();
+    void handle_grind_button_released();
+    void clear_suppressed_click() { suppress_next_grind_click_ = false; }
+    bool consume_suppressed_click() {
+        if (!suppress_next_grind_click_) return false;
+        suppress_next_grind_click_ = false;
+        return true;
+    }
     void handle_pulse_button();
     void handle_layout_toggle();
     void handle_purge_confirm_continue();
@@ -31,6 +39,7 @@ public:
     static void dispatch_event(const GrindEventData& event_data);
 
 private:
+    bool is_manual_hold_enabled() const;
     void enter_ready_state();
     void enter_edit_state();
     void enter_grinding_state();
@@ -56,6 +65,8 @@ private:
     lv_timer_t* grind_timeout_timer_ = nullptr;
     bool chart_updates_enabled_ = false;
     bool last_can_pulse_ = false;
+    bool manual_hold_active_ = false;
+    bool suppress_next_grind_click_ = false;
     float final_grind_weight_ = 0.0f;
     int final_grind_progress_ = 0;
     float error_grind_weight_ = 0.0f;

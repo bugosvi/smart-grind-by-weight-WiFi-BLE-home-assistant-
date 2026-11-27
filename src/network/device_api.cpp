@@ -1000,6 +1000,10 @@ bool DeviceApi::queue_settings_update(AsyncWebServerRequest* request) {
                                     : grind_controller_->get_motor_response_latency();
     settings.logging_enabled = form_bool(value("logging_enabled"));
     settings.swipe_enabled = form_bool(value("swipe_enabled"));
+    settings.has_manual_hold_mode = request->hasParam("manual_hold_mode", true);
+    if (settings.has_manual_hold_mode) {
+        settings.manual_hold_mode = form_bool(value("manual_hold_mode"));
+    }
     settings.brightness_percent = value("brightness_percent").toInt();
     settings.screensaver_brightness_percent = value("screensaver_brightness_percent").toInt();
     settings.screensaver_startup = form_bool(value("screensaver_startup"));
@@ -1150,6 +1154,9 @@ bool DeviceApi::apply_settings(const DeviceSettingsUpdate& update) {
     }
     saved = put_bool("logging", "enabled", settings.logging_enabled) && saved;
     saved = put_bool("swipe", "enabled", settings.swipe_enabled) && saved;
+    if (settings.has_manual_hold_mode) {
+        saved = put_bool("manual", "hold", settings.manual_hold_mode) && saved;
+    }
     saved = put_bool("screensaver", "startup", settings.screensaver_startup) && saved;
     saved = put_bool("screensaver", "sleep", settings.screensaver_sleep) && saved;
     saved = put_bool("bluetooth", "startup", settings.bluetooth_startup) && saved;
@@ -1253,7 +1260,7 @@ void DeviceApi::refresh_settings_cache() {
              "\"automatic\":{\"start\":%s,\"threshold_g\":%.1f,\"return\":%s},"
              "\"purge\":{\"mode\":%d,\"amount_g\":%.2f,\"freshness_hours\":%.2f},"
              "\"coast_ratio\":%.2f,\"motor_latency_ms\":%.0f,"
-             "\"logging_enabled\":%s,\"swipe_enabled\":%s,"
+             "\"logging_enabled\":%s,\"swipe_enabled\":%s,\"manual_hold_mode\":%s,"
              "\"display\":{\"brightness\":%d,\"screensaver_brightness\":%d,"
              "\"screensaver_startup\":%s,\"screensaver_sleep\":%s,"
              "\"screensaver_idle_timeout_s\":%u,\"screensaver_startup_timeout_s\":%u,"
@@ -1274,6 +1281,7 @@ void DeviceApi::refresh_settings_cache() {
              grind_controller_->get_motor_response_latency(),
              read_bool("logging", "enabled", true) ? "true" : "false",
              read_bool("swipe", "enabled", false) ? "true" : "false",
+             read_bool("manual", "hold", false) ? "true" : "false",
              static_cast<int>(read_brightness("normal", USER_SCREEN_BRIGHTNESS_NORMAL) * 100.0f + 0.5f),
              static_cast<int>(read_brightness("screensaver", USER_SCREEN_BRIGHTNESS_DIMMED) * 100.0f + 0.5f),
              read_bool("screensaver", "startup", false) ? "true" : "false",
