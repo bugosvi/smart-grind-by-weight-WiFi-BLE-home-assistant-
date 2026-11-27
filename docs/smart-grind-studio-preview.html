@@ -1,0 +1,1059 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Smart Grind Studio — Interactive Web App &amp; Responsive Guide</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    .num { font-variant-numeric: tabular-nums; }
+    .vp-shell { transition: max-width 0.25s ease; }
+    .vp-mobile { max-width: 396px !important; }
+    .vp-tablet { max-width: 780px !important; }
+    .vp-desktop { max-width: 100% !important; }
+
+    /* Responsive layout rules that mirror device_page.h AND react to viewport preview toggle */
+    .studio-grid-2 { display: grid; grid-template-columns: 1.3fr 1fr; gap: 14px; }
+    .studio-kpi-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+    .studio-kpi-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+    .studio-history-split { display: grid; grid-template-columns: 320px 1fr; gap: 14px; }
+    .studio-notes-split { display: grid; grid-template-columns: 300px 1fr; gap: 16px; align-items: start; }
+    .studio-nav-top { display: flex; }
+    .studio-nav-bottom { display: none; }
+
+    .vp-tablet .studio-grid-2,
+    .vp-tablet .studio-history-split,
+    .vp-tablet .studio-notes-split { grid-template-columns: 1fr; }
+    .vp-tablet .studio-kpi-4 { grid-template-columns: repeat(2, 1fr); }
+
+    .vp-mobile .studio-grid-2,
+    .vp-mobile .studio-history-split,
+    .vp-mobile .studio-notes-split { grid-template-columns: 1fr; }
+    .vp-mobile .studio-kpi-4,
+    .vp-mobile .studio-kpi-3 { grid-template-columns: repeat(2, 1fr); }
+    .vp-mobile .studio-nav-top { display: none; }
+    .vp-mobile .studio-nav-bottom { display: flex; }
+    .vp-mobile .studio-body-pad { padding-bottom: 68px; }
+
+    @media (max-width: 820px) {
+      .studio-grid-2, .studio-history-split, .studio-notes-split { grid-template-columns: 1fr; }
+      .studio-kpi-4 { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 640px) {
+      .studio-kpi-3 { grid-template-columns: repeat(2, 1fr); }
+      .studio-nav-top { display: none; }
+      .studio-nav-bottom { display: flex; }
+      .studio-body-pad { padding-bottom: 68px; }
+    }
+  </style>
+  <style>
+    :root {
+      --background: #0d100e;
+      --content: #131815;
+      --card: #161c18;
+      --card-border: #27302a;
+      --border: #2a342e;
+      --foreground: #f2f4ef;
+      --muted-foreground: #9da89f;
+      --primary: #d97706;
+      --primary-foreground: #ffffff;
+      --accent: #38bdf8;
+      --success: #22c55e;
+      --warning: #f59e0b;
+      --error: #ef4444;
+    }
+    @media (prefers-color-scheme: light) {
+      :root {
+        --background: #f5f3ec;
+        --content: #ffffff;
+        --card: #ffffff;
+        --card-border: #e4e0d5;
+        --border: #ddd8cb;
+        --foreground: #181a17;
+        --muted-foreground: #5f665f;
+        --primary: #c2590a;
+        --primary-foreground: #ffffff;
+        --accent: #0284c7;
+        --success: #16a34a;
+        --warning: #d97706;
+        --error: #dc2626;
+      }
+    }
+  </style>
+</head>
+<body class="bg-[var(--background)] text-[var(--foreground)] antialiased m-0 p-0">
+  <div class="max-w-6xl mx-auto px-3 sm:px-5 py-4 space-y-4">
+
+    <!-- Hebrew Guide & Responsive Viewport Switcher Toolbar -->
+    <div dir="rtl" class="bg-[var(--card)] border border-[var(--border)] rounded-2xl p-3.5 sm:p-4 flex flex-col gap-3">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div class="flex flex-wrap items-center gap-2">
+            <span class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-[var(--primary)] text-[var(--primary-foreground)]">Smart Grind Studio · ESP32 Web App</span>
+            <span class="px-2.5 py-0.5 rounded-full text-xs border border-[var(--border)] text-[var(--muted-foreground)]">סימולטור חי של האתר (כולל סטטיסטיקות קפה)</span>
+          </div>
+          <h1 class="text-base sm:text-lg font-bold mt-1">תצוגה חיה ובדיקת רספונסיביות של אתר המטחנה</h1>
+          <p class="text-xs text-[var(--muted-foreground)] mt-0.5">
+            כל הטאבים עובדים חי מול מטחנה מדומה: הפעל טחינה ב-<strong>Dashboard</strong>, בדוק סכימת קפה לפי תקופה ב-<strong>History</strong>, שלח הערה ב-<strong>Note Studio</strong>, או החלף מצב <strong>Manual Hold</strong> ב-<strong>Settings</strong>.
+          </p>
+        </div>
+
+        <!-- Viewport Switcher + Cup Simulator -->
+        <div class="flex flex-wrap items-center gap-2">
+          <div class="flex items-center gap-1 p-1 rounded-xl bg-[var(--background)] border border-[var(--border)]">
+            <button type="button" data-vp="desktop" class="vp-btn px-2.5 py-1 rounded-lg text-xs font-semibold bg-[var(--primary)] text-[var(--primary-foreground)] transition">💻 דסקטופ</button>
+            <button type="button" data-vp="tablet" class="vp-btn px-2.5 py-1 rounded-lg text-xs font-semibold text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition">📲 טאבלט</button>
+            <button type="button" data-vp="mobile" class="vp-btn px-2.5 py-1 rounded-lg text-xs font-semibold text-[var(--muted-foreground)] hover:text-[var(--foreground)] transition">📱 מובייל</button>
+          </div>
+          <button type="button" id="simCupBtn" class="px-2.5 py-1.5 rounded-xl border border-[var(--success)] bg-[var(--success)]/10 text-[var(--success)] text-xs font-semibold transition">
+            כוס על המשקל ✓
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Simulated Responsive Browser Frame -->
+    <div id="vpShell" class="vp-shell vp-desktop mx-auto bg-[var(--card)] border border-[var(--border)] rounded-2xl overflow-hidden shadow-lg relative">
+
+      <!-- Simulated ESP32 App Bar -->
+      <header class="sticky top-0 z-20 bg-[var(--card)]/95 backdrop-blur border-b border-[var(--border)] px-4 py-2.5 flex items-center justify-between gap-3">
+        <div class="flex items-center gap-2.5 min-w-0">
+          <div class="w-8 h-8 rounded-xl bg-[var(--background)] border border-[var(--border)] flex items-center justify-center shrink-0">
+            <svg class="w-4 h-4 text-[var(--primary)]" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M22.9 7.1c4.4 4.4 2.9 12.7-2.7 17.1S7.6 27.1 4.8 22.3 4.3 10.1 10 6.2s9.4-2.5 12.9.9Z"/>
+              <path d="M8.4 23.5c4.7-2.7 3.5-6.2 2.5-9.3-.9-2.8-1.6-5.2 1.7-8.4"/>
+            </svg>
+          </div>
+          <div class="leading-tight truncate">
+            <div class="font-bold text-sm">Smart Grind</div>
+            <div class="text-xs text-[var(--muted-foreground)]">Studio · smartgrind.local</div>
+          </div>
+        </div>
+
+        <!-- Desktop / Tablet Top Nav -->
+        <nav class="studio-nav-top items-center gap-1 bg-[var(--background)] border border-[var(--border)] rounded-xl p-1">
+          <button type="button" data-page="dashboard" class="nav-btn px-3 py-1.5 rounded-lg text-xs font-semibold">Dashboard</button>
+          <button type="button" data-page="notes" class="nav-btn px-3 py-1.5 rounded-lg text-xs font-semibold">Note Studio</button>
+          <button type="button" data-page="history" class="nav-btn px-3 py-1.5 rounded-lg text-xs font-semibold">History</button>
+          <button type="button" data-page="settings" class="nav-btn px-3 py-1.5 rounded-lg text-xs font-semibold">Settings</button>
+        </nav>
+
+        <div class="flex items-center gap-1.5 shrink-0">
+          <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border border-[var(--border)] bg-[var(--background)]">
+            <span class="w-2 h-2 rounded-full bg-[var(--success)]"></span>
+            <span class="hidden sm:inline">Live WS</span>
+          </span>
+        </div>
+      </header>
+
+      <!-- Main Studio Content Container -->
+      <main class="studio-body-pad bg-[var(--background)] p-4 sm:p-5 space-y-4">
+
+        <!-- ==================== TAB 1: DASHBOARD ==================== -->
+        <section id="page-dashboard" class="page-panel space-y-4">
+          <div class="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <div class="text-xs font-semibold uppercase tracking-wider text-[var(--primary)]">Grind by weight</div>
+              <h2 class="text-xl font-bold mt-0.5">Precision, dialed in.</h2>
+              <p id="dashSubtitle" class="text-xs text-[var(--muted-foreground)] mt-0.5">Double profile · 18.0 g target · Ready</p>
+            </div>
+            <div class="flex flex-wrap gap-1.5">
+              <span id="dashCupPill" class="px-2.5 py-1 rounded-full text-xs font-semibold border border-[var(--success)]/40 bg-[var(--success)]/10 text-[var(--success)]">● Cup detected (142g)</span>
+              <span id="dashPhasePill" class="px-2.5 py-1 rounded-full text-xs font-semibold border border-[var(--border)] bg-[var(--card)]">IDLE</span>
+            </div>
+          </div>
+
+          <!-- Refusal / Error Alert Banner (plain language, commit c0ad176) -->
+          <div id="dashErrorBanner" class="hidden rounded-xl border border-[var(--error)] bg-[var(--error)]/10 p-3 text-xs text-[var(--foreground)] flex items-center justify-between gap-2">
+            <div>
+              <strong class="text-[var(--error)]">Start refused: </strong>
+              <span id="dashErrorText"></span>
+            </div>
+            <button type="button" id="dashErrorClose" class="px-2 py-0.5 rounded border border-[var(--border)] text-xs">Dismiss</button>
+          </div>
+
+          <!-- Controls ABOVE Telemetry (commit e27909c) -->
+          <div class="bg-[var(--card)] border border-[var(--border)] rounded-2xl p-4 space-y-3">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <div class="flex flex-wrap items-center gap-1.5" id="dashProfileBtns">
+                <button type="button" data-prof="0" class="prof-btn px-3 py-1.5 rounded-xl border text-xs font-bold transition">Single · 9.0g</button>
+                <button type="button" data-prof="1" class="prof-btn px-3 py-1.5 rounded-xl border text-xs font-bold transition">Double · 18.0g</button>
+                <button type="button" data-prof="2" class="prof-btn px-3 py-1.5 rounded-xl border text-xs font-bold transition">Custom · 20.5g</button>
+              </div>
+              <div class="flex flex-wrap items-center gap-2">
+                <button type="button" id="dashStartBtn" class="px-4 py-2 rounded-xl bg-[var(--primary)] text-[var(--primary-foreground)] text-xs font-bold hover:opacity-90 transition">▶ Start Grind</button>
+                <button type="button" id="dashStopBtn" class="px-4 py-2 rounded-xl bg-[var(--error)] text-white text-xs font-bold hover:opacity-90 transition hidden">■ Stop</button>
+                <button type="button" id="dashTareBtn" class="px-3 py-2 rounded-xl border border-[var(--border)] bg-[var(--background)] text-xs font-semibold hover:border-[var(--primary)] transition">Tare</button>
+                <button type="button" id="dashDismissBtn" class="px-3 py-2 rounded-xl border border-[var(--border)] bg-[var(--background)] text-xs font-semibold hidden">Dismiss</button>
+              </div>
+            </div>
+
+            <!-- Telemetry Metrics -->
+            <div class="studio-kpi-3 pt-2 border-t border-[var(--border)]">
+              <div class="p-3 rounded-xl bg-[var(--background)] border border-[var(--border)]">
+                <div class="text-xs text-[var(--muted-foreground)]">Weight</div>
+                <div id="dashWeight" class="text-2xl font-extrabold num mt-0.5">0.00 g</div>
+              </div>
+              <div class="p-3 rounded-xl bg-[var(--background)] border border-[var(--border)]">
+                <div class="text-xs text-[var(--muted-foreground)]">Flow rate</div>
+                <div id="dashFlow" class="text-2xl font-extrabold num mt-0.5">0.00 g/s</div>
+              </div>
+              <div class="p-3 rounded-xl bg-[var(--background)] border border-[var(--border)]">
+                <div class="text-xs text-[var(--muted-foreground)]">Progress</div>
+                <div id="dashProgress" class="text-2xl font-extrabold num mt-0.5">0%</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Live Chart with Dashed Target Line (commit c58b51c) -->
+          <div class="bg-[var(--card)] border border-[var(--border)] rounded-2xl p-4 space-y-2">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h3 class="text-sm font-bold">Live weight &amp; flow trace</h3>
+                <p class="text-xs text-[var(--muted-foreground)]">Weight curve, flow rate (g/s), and dashed target weight line</p>
+              </div>
+              <span id="dashAdaptivePill" class="px-2.5 py-1 rounded-full text-xs font-mono border border-[var(--border)] bg-[var(--background)] text-[var(--muted-foreground)]">
+                Adaptive coast: 265 ms
+              </span>
+            </div>
+            <div class="w-full h-[210px] rounded-xl bg-[var(--background)] border border-[var(--border)] p-2">
+              <canvas id="liveChart" class="w-full h-full block"></canvas>
+            </div>
+          </div>
+        </section>
+
+        <!-- ==================== TAB 2: HISTORY & COFFEE STATS ==================== -->
+        <section id="page-history" class="page-panel hidden space-y-4">
+          <div class="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <div class="text-xs font-semibold uppercase tracking-wider text-[var(--primary)]">On-device archive &amp; analytics</div>
+              <h2 class="text-xl font-bold mt-0.5">History &amp; Coffee Stats</h2>
+              <p class="text-xs text-[var(--muted-foreground)] mt-0.5">Track total coffee ground over any period, dosing accuracy, daily consumption, and lifetime burr usage.</p>
+            </div>
+            <div class="flex items-center gap-2">
+              <button type="button" id="exportPeriodCsv" class="px-3 py-1.5 rounded-xl border border-[var(--border)] bg-[var(--card)] hover:border-[var(--primary)] text-xs font-semibold transition">Export CSV</button>
+              <button type="button" id="refreshHistoryBtn" class="px-3 py-1.5 rounded-xl border border-[var(--border)] bg-[var(--card)] hover:border-[var(--primary)] text-xs font-semibold transition">Refresh</button>
+            </div>
+          </div>
+
+          <!-- Period Filter Bar -->
+          <div class="flex flex-wrap items-center justify-between gap-2.5">
+            <div class="flex flex-wrap items-center gap-1.5" role="tablist">
+              <button type="button" class="ptab px-3 py-1.5 rounded-full border text-xs font-bold transition" data-period="today">Today</button>
+              <button type="button" class="ptab px-3 py-1.5 rounded-full border text-xs font-bold transition" data-period="7d">7 Days</button>
+              <button type="button" class="ptab px-3 py-1.5 rounded-full border text-xs font-bold transition" data-period="30d">30 Days</button>
+              <button type="button" class="ptab px-3 py-1.5 rounded-full border text-xs font-bold transition" data-period="all">All saved</button>
+              <button type="button" class="ptab px-3 py-1.5 rounded-full border text-xs font-bold transition" data-period="custom">Custom</button>
+            </div>
+            <div id="customDateRange" class="hidden flex flex-wrap items-center gap-2 text-xs text-[var(--muted-foreground)]">
+              <label class="flex items-center gap-1">From <input id="dateFrom" type="date" class="px-2 py-1 rounded-lg border border-[var(--border)] bg-[var(--card)] text-[var(--foreground)] text-xs"></label>
+              <label class="flex items-center gap-1">To <input id="dateTo" type="date" class="px-2 py-1 rounded-lg border border-[var(--border)] bg-[var(--card)] text-[var(--foreground)] text-xs"></label>
+            </div>
+          </div>
+
+          <!-- 4 Period Summary KPI Cards -->
+          <div class="studio-kpi-4">
+            <div class="bg-[var(--card)] border border-[var(--border)] rounded-2xl p-3.5">
+              <div class="text-xs text-[var(--muted-foreground)]">Coffee ground</div>
+              <div id="periodCoffee" class="text-xl font-extrabold num mt-1">—</div>
+              <div id="periodBags" class="text-xs text-[var(--muted-foreground)] mt-1">—</div>
+            </div>
+            <div class="bg-[var(--card)] border border-[var(--border)] rounded-2xl p-3.5">
+              <div class="text-xs text-[var(--muted-foreground)]">Shots in period</div>
+              <div id="historyCount" class="text-xl font-extrabold num mt-1">—</div>
+              <div id="periodAvgDose" class="text-xs text-[var(--muted-foreground)] mt-1">—</div>
+            </div>
+            <div class="bg-[var(--card)] border border-[var(--border)] rounded-2xl p-3.5">
+              <div class="text-xs text-[var(--muted-foreground)]">Avg error &amp; SD</div>
+              <div id="averageError" class="text-xl font-extrabold num mt-1">—</div>
+              <div id="consistency" class="text-xs text-[var(--muted-foreground)] mt-1">—</div>
+            </div>
+            <div class="bg-[var(--card)] border border-[var(--border)] rounded-2xl p-3.5">
+              <div class="text-xs text-[var(--muted-foreground)]">Pulses &amp; motor</div>
+              <div id="periodPulses" class="text-xl font-extrabold num mt-1">—</div>
+              <div id="periodMotor" class="text-xs text-[var(--muted-foreground)] mt-1">—</div>
+            </div>
+          </div>
+
+          <!-- Daily Bar Chart + Lifetime Grinder Totals -->
+          <div class="studio-grid-2">
+            <div class="bg-[var(--card)] border border-[var(--border)] rounded-2xl p-4 space-y-2.5">
+              <div>
+                <h3 class="text-sm font-bold">Coffee throughput by day</h3>
+                <p class="text-xs text-[var(--muted-foreground)]">Grams ground per day in selected period</p>
+              </div>
+              <div class="w-full h-[185px]">
+                <canvas id="usageChart" class="w-full h-full block"></canvas>
+              </div>
+              <div id="profileBreakdown" class="flex flex-wrap gap-1.5 pt-1"></div>
+            </div>
+
+            <div class="bg-[var(--card)] border border-[var(--border)] rounded-2xl p-4 space-y-3">
+              <div>
+                <h3 class="text-sm font-bold">Lifetime grinder totals</h3>
+                <p class="text-xs text-[var(--muted-foreground)]">Persistent NVS totals via <code class="font-mono">/api/v1/stats</code></p>
+              </div>
+              <div class="grid grid-cols-2 gap-2.5">
+                <div class="p-2.5 rounded-xl bg-[var(--background)] border border-[var(--border)]">
+                  <div class="text-xs text-[var(--muted-foreground)]">Total coffee</div>
+                  <div id="lifeCoffee" class="text-base font-extrabold num mt-0.5">—</div>
+                </div>
+                <div class="p-2.5 rounded-xl bg-[var(--background)] border border-[var(--border)]">
+                  <div class="text-xs text-[var(--muted-foreground)]">Total shots</div>
+                  <div id="lifeShots" class="text-base font-extrabold num mt-0.5">—</div>
+                </div>
+                <div class="p-2.5 rounded-xl bg-[var(--background)] border border-[var(--border)]">
+                  <div class="text-xs text-[var(--muted-foreground)]">Lifetime avg error</div>
+                  <div id="lifeAcc" class="text-base font-extrabold num mt-0.5">—</div>
+                </div>
+                <div class="p-2.5 rounded-xl bg-[var(--background)] border border-[var(--border)]">
+                  <div class="text-xs text-[var(--muted-foreground)]">Motor runtime</div>
+                  <div id="lifeMotor" class="text-base font-extrabold num mt-0.5">—</div>
+                </div>
+              </div>
+              <div id="lifeBreakdown" class="flex flex-wrap gap-1.5"></div>
+            </div>
+          </div>
+
+          <!-- Sessions List + Trace Inspector -->
+          <div class="studio-history-split">
+            <div class="bg-[var(--card)] border border-[var(--border)] rounded-2xl p-4 space-y-2.5">
+              <div class="flex items-center justify-between">
+                <h3 class="text-sm font-bold">Sessions</h3>
+                <span id="filteredBadge" class="text-xs text-[var(--muted-foreground)]"></span>
+              </div>
+              <div id="historyList" class="space-y-1.5 max-h-[300px] overflow-y-auto pr-1"></div>
+            </div>
+            <div id="historyDetail" class="bg-[var(--card)] border border-[var(--border)] rounded-2xl p-4 space-y-3"></div>
+          </div>
+        </section>
+
+        <!-- ==================== TAB 3: MORNING NOTE STUDIO ==================== -->
+        <section id="page-notes" class="page-panel hidden space-y-4">
+          <div>
+            <div class="text-xs font-semibold uppercase tracking-wider text-[var(--primary)]">Scheduled AMOLED greeting</div>
+            <h2 class="text-xl font-bold mt-0.5">Morning Note Studio</h2>
+            <p class="text-xs text-[var(--muted-foreground)] mt-0.5">Compose English or Hebrew RTL notes rendered directly to 280×456 RGB565 with burn-in protection.</p>
+          </div>
+          <div class="studio-notes-split">
+            <div class="bg-[var(--card)] border border-[var(--border)] rounded-2xl p-4 flex flex-col items-center gap-2.5">
+              <div class="w-full flex items-center justify-between text-xs">
+                <span class="font-semibold">AMOLED 280×456</span>
+                <span id="noteBadge" class="text-[var(--success)] font-semibold">Ready</span>
+              </div>
+              <div class="p-2.5 rounded-[24px] bg-black border border-[var(--border)] w-full max-w-[240px]">
+                <canvas id="noteCanvas" width="280" height="456" class="w-full rounded-[16px] block"></canvas>
+              </div>
+              <span class="text-xs text-[var(--muted-foreground)]">Show now capped at 6h · ±3px shift</span>
+            </div>
+            <div class="bg-[var(--card)] border border-[var(--border)] rounded-2xl p-4 space-y-3">
+              <div class="flex flex-wrap gap-1.5">
+                <button type="button" id="presetHe" class="px-2.5 py-1 rounded-full text-xs font-semibold border border-[var(--border)] bg-[var(--background)]">Hebrew Morning</button>
+                <button type="button" id="presetEn" class="px-2.5 py-1 rounded-full text-xs font-semibold border border-[var(--border)] bg-[var(--background)]">English Espresso</button>
+              </div>
+              <label class="block space-y-1">
+                <span class="text-xs font-semibold text-[var(--muted-foreground)]">Headline</span>
+                <input id="noteHead" dir="auto" type="text" value="בוקר טוב אהובתי ☕" class="w-full px-3 py-2 rounded-xl bg-[var(--background)] border border-[var(--border)] text-sm">
+              </label>
+              <label class="block space-y-1">
+                <span class="text-xs font-semibold text-[var(--muted-foreground)]">Message</span>
+                <textarea id="noteBody" dir="auto" rows="3" class="w-full px-3 py-2 rounded-xl bg-[var(--background)] border border-[var(--border)] text-sm">שיהיה יום מושלם!
+האספרסו מחכה לך ❤️</textarea>
+              </label>
+              <div class="grid grid-cols-2 gap-2 text-xs">
+                <label class="space-y-1">
+                  <span class="text-[var(--muted-foreground)] font-semibold">Theme</span>
+                  <select id="noteTheme" class="w-full px-2.5 py-2 rounded-xl bg-[var(--background)] border border-[var(--border)]">
+                    <option value="espresso">Espresso Gold</option>
+                    <option value="midnight">Midnight Blue</option>
+                    <option value="forest">Forest Sage</option>
+                  </select>
+                </label>
+                <label class="space-y-1">
+                  <span class="text-[var(--muted-foreground)] font-semibold">Delivery</span>
+                  <select id="noteMode" class="w-full px-2.5 py-2 rounded-xl bg-[var(--background)] border border-[var(--border)]">
+                    <option value="tomorrow">Tomorrow 06:30–11:00</option>
+                    <option value="daily">Daily 06:30–11:00</option>
+                    <option value="now">Show now (6h max)</option>
+                  </select>
+                </label>
+              </div>
+              <div class="flex flex-wrap gap-2 pt-1">
+                <button type="button" id="notePreviewBtn" class="px-3.5 py-2 rounded-xl border border-[var(--border)] bg-[var(--background)] text-xs font-bold hover:border-[var(--primary)]">Preview on AMOLED</button>
+                <button type="button" id="noteSendBtn" class="px-4 py-2 rounded-xl bg-[var(--primary)] text-[var(--primary-foreground)] text-xs font-bold hover:opacity-90">Send &amp; Arm Note</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ==================== TAB 4: SETTINGS & SAFETY ==================== -->
+        <section id="page-settings" class="page-panel hidden space-y-4">
+          <div>
+            <div class="text-xs font-semibold uppercase tracking-wider text-[var(--primary)]">Device configuration</div>
+            <h2 class="text-xl font-bold mt-0.5">Settings &amp; Safety</h2>
+            <p class="text-xs text-[var(--muted-foreground)] mt-0.5">Synced live with NVS and the Waveshare touchscreen.</p>
+          </div>
+
+          <div class="studio-grid-2">
+            <div class="bg-[var(--card)] border border-[var(--border)] rounded-2xl p-4 space-y-3">
+              <h3 class="text-sm font-bold">Grinding behaviour</h3>
+              <div class="space-y-2 text-xs">
+                <label class="flex items-center gap-2.5 p-2.5 rounded-xl bg-[var(--background)] border border-[var(--border)] cursor-pointer">
+                  <input id="setManualHold" type="checkbox" class="accent-[var(--primary)]">
+                  <span><strong>Manual tab: hold button to grind</strong> (off = Start/Stop)</span>
+                </label>
+                <label class="flex items-center gap-2.5 p-2.5 rounded-xl bg-[var(--background)] border border-[var(--border)] cursor-pointer">
+                  <input id="setSwipe" type="checkbox" checked class="accent-[var(--primary)]">
+                  <span>Swipe vertically between Weight / Time modes</span>
+                </label>
+                <label class="flex items-center gap-2.5 p-2.5 rounded-xl bg-[var(--background)] border border-[var(--border)] cursor-pointer">
+                  <input id="setAutoReturn" type="checkbox" checked class="accent-[var(--primary)]">
+                  <span>Auto-return to READY when cup is lifted</span>
+                </label>
+              </div>
+              <div class="space-y-1.5 pt-1">
+                <div class="text-xs font-semibold text-[var(--muted-foreground)]">Grinding screen layout</div>
+                <div class="grid grid-cols-3 gap-2 text-xs">
+                  <button type="button" data-lay="portafilter" class="lay-btn py-2 rounded-xl border font-bold">Portafilter</button>
+                  <button type="button" data-lay="chart" class="lay-btn py-2 rounded-xl border font-bold">Nerdy Chart</button>
+                  <button type="button" data-lay="arc" class="lay-btn py-2 rounded-xl border font-bold">Minimal Arc</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="bg-[var(--card)] border border-[var(--border)] rounded-2xl p-4 space-y-3">
+              <h3 class="text-sm font-bold">Remote safety &amp; adaptive coast</h3>
+              <div class="space-y-2 text-xs">
+                <label class="flex items-center gap-2.5 p-2.5 rounded-xl bg-[var(--background)] border border-[var(--border)] cursor-pointer">
+                  <input id="setReqCup" type="checkbox" checked class="accent-[var(--primary)]">
+                  <span>Require cup detected before remote start</span>
+                </label>
+                <label class="flex items-center gap-2.5 p-2.5 rounded-xl bg-[var(--background)] border border-[var(--border)] cursor-pointer">
+                  <input id="setAdaptive" type="checkbox" checked class="accent-[var(--primary)]">
+                  <span>Adaptive Zero-Shot + fast-attack coast learning</span>
+                </label>
+                <div class="grid grid-cols-2 gap-2 pt-1">
+                  <label class="space-y-1">
+                    <span class="text-[var(--muted-foreground)]">Remote max dose (g)</span>
+                    <input id="setMaxDose" type="number" min="4" max="120" value="30" class="w-full px-2.5 py-1.5 rounded-lg border border-[var(--border)] bg-[var(--background)] num">
+                  </label>
+                  <label class="space-y-1">
+                    <span class="text-[var(--muted-foreground)]">No-flow cutoff (s)</span>
+                    <input id="setNoFlow" type="number" min="2" max="15" value="4" class="w-full px-2.5 py-1.5 rounded-lg border border-[var(--border)] bg-[var(--background)] num">
+                  </label>
+                </div>
+              </div>
+              <button type="button" id="saveSettingsBtn" class="w-full py-2 rounded-xl bg-[var(--primary)] text-[var(--primary-foreground)] text-xs font-bold hover:opacity-90">Save Settings to ESP32</button>
+            </div>
+          </div>
+        </section>
+
+      </main>
+
+      <!-- Mobile Bottom Navigation Bar (shown in Mobile viewport / < 640px, mirrors device_page.h!) -->
+      <nav class="studio-nav-bottom sticky bottom-0 left-0 right-0 z-20 bg-[var(--card)]/95 backdrop-blur border-t border-[var(--border)] px-2 py-1.5 justify-around gap-1">
+        <button type="button" data-page="dashboard" class="nav-btn flex-1 py-1.5 rounded-lg text-xs font-semibold">Dashboard</button>
+        <button type="button" data-page="notes" class="nav-btn flex-1 py-1.5 rounded-lg text-xs font-semibold">Notes</button>
+        <button type="button" data-page="history" class="nav-btn flex-1 py-1.5 rounded-lg text-xs font-semibold">History</button>
+        <button type="button" data-page="settings" class="nav-btn flex-1 py-1.5 rounded-lg text-xs font-semibold">Settings</button>
+      </nav>
+    </div>
+
+    <!-- Toast -->
+    <div id="toast" class="fixed bottom-5 right-5 z-50 px-4 py-2.5 rounded-xl bg-[var(--foreground)] text-[var(--background)] text-xs font-bold shadow-lg opacity-0 pointer-events-none transition-opacity duration-200"></div>
+  </div>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+
+  // ===== Simulated Grinder & Rich 25-Day Session History =====
+  const PROFILES = [
+    { id: 0, name: 'Single', weight: 9.0 },
+    { id: 1, name: 'Double', weight: 18.0 },
+    { id: 2, name: 'Custom', weight: 20.5 }
+  ];
+
+  function buildRealisticHistory() {
+    const now = Math.floor(Date.now() / 1000);
+    const day = 86400;
+    const offsets = [
+      // Today (3 shots)
+      { d: 0, h: 1, p: 1, err: 0.02, pulses: 1 },
+      { d: 0, h: 4, p: 1, err: -0.03, pulses: 1 },
+      { d: 0, h: 6, p: 0, err: 0.01, pulses: 0 },
+      // Yesterday (3 shots)
+      { d: 1, h: 2, p: 1, err: 0.04, pulses: 2 },
+      { d: 1, h: 5, p: 2, err: -0.02, pulses: 1 },
+      { d: 1, h: 8, p: 1, err: 0.01, pulses: 1 },
+      // 2-6 days ago
+      { d: 2, h: 3, p: 1, err: -0.04, pulses: 2 },
+      { d: 2, h: 7, p: 0, err: 0.02, pulses: 1 },
+      { d: 3, h: 4, p: 1, err: 0.03, pulses: 1 },
+      { d: 4, h: 2, p: 1, err: -0.01, pulses: 1 },
+      { d: 4, h: 6, p: 2, err: 0.05, pulses: 2 },
+      { d: 5, h: 3, p: 1, err: 0.02, pulses: 1 },
+      { d: 6, h: 5, p: 0, err: -0.02, pulses: 1 },
+      // 9-24 days ago (inside 30d window)
+      { d: 9, h: 2, p: 1, err: 0.03, pulses: 1 },
+      { d: 12, h: 4, p: 1, err: -0.03, pulses: 2 },
+      { d: 15, h: 3, p: 2, err: 0.02, pulses: 1 },
+      { d: 19, h: 5, p: 1, err: 0.04, pulses: 2 },
+      { d: 23, h: 2, p: 0, err: -0.01, pulses: 1 }
+    ];
+    return offsets.map((o, idx) => {
+      const target = PROFILES[o.p].weight;
+      const finalW = Number((target + o.err).toFixed(2));
+      const motorMs = Math.round((finalW / 1.85) * 1000);
+      return {
+        id: 162 - idx,
+        timestamp: now - o.d * day - o.h * 3600,
+        profile: o.p,
+        mode: 'weight',
+        target_weight: target,
+        final_weight: finalW,
+        error_grams: -o.err,
+        motor_time_ms: motorMs,
+        pulses: o.pulses,
+        result: 'COMPLETE'
+      };
+    });
+  }
+
+  const app = {
+    page: 'history', // Start directly on History & Coffee Stats so user immediately sees the new analytics!
+    viewport: 'desktop',
+    cupPresent: true,
+    activeProfile: 1,
+    grindLayout: 'portafilter',
+    grinding: false,
+    grindTimer: null,
+    liveWeight: 0,
+    liveFlow: 0,
+    liveSamples: [],
+    liveFlows: [],
+    historyPeriod: '7d',
+    history: buildRealisticHistory(),
+    selectedSessionId: null,
+    stats: {
+      total_grinds: 162,
+      single_shots: 34,
+      double_shots: 109,
+      custom_shots: 19,
+      total_weight_kg: 2.842,
+      motor_runtime_sec: 1458,
+      device_uptime_hrs: 96,
+      device_uptime_min: 42,
+      avg_accuracy_g: 0.028,
+      avg_pulses: 1.32
+    }
+  };
+
+  let toastTimer = null;
+  function showToast(msg) {
+    const t = $('toast');
+    t.textContent = msg;
+    t.style.opacity = '1';
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { t.style.opacity = '0'; }, 2200);
+  }
+
+  function cssVar(name, fallback) {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
+  }
+
+  // ===== Viewport Responsive Switcher =====
+  function setViewport(vp) {
+    app.viewport = vp;
+    const shell = $('vpShell');
+    shell.classList.remove('vp-desktop', 'vp-tablet', 'vp-mobile');
+    shell.classList.add('vp-' + vp);
+    document.querySelectorAll('.vp-btn').forEach(b => {
+      const act = b.dataset.vp === vp;
+      b.className = `vp-btn px-2.5 py-1 rounded-lg text-xs font-semibold transition ${
+        act ? 'bg-[var(--primary)] text-[var(--primary-foreground)]' : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+      }`;
+    });
+    setTimeout(() => {
+      drawLiveChart();
+      drawUsageChart(filteredHistory());
+      if (app.selectedSessionId) renderHistoryDetail();
+    }, 270);
+  }
+  document.querySelectorAll('.vp-btn').forEach(b => { b.onclick = () => setViewport(b.dataset.vp); });
+
+  // ===== Cup Sensor Toggle =====
+  $('simCupBtn').onclick = () => {
+    app.cupPresent = !app.cupPresent;
+    const b = $('simCupBtn');
+    b.textContent = app.cupPresent ? 'כוס על המשקל ✓' : 'אין כוס על המשקל ✕';
+    b.className = `px-2.5 py-1.5 rounded-xl border text-xs font-semibold transition ${
+      app.cupPresent
+        ? 'border-[var(--success)] bg-[var(--success)]/10 text-[var(--success)]'
+        : 'border-[var(--warning)] bg-[var(--warning)]/10 text-[var(--warning)]'
+    }`;
+    const pill = $('dashCupPill');
+    pill.textContent = app.cupPresent ? '● Cup detected (142g)' : '● No cup detected (0g)';
+    pill.className = `px-2.5 py-1 rounded-full text-xs font-semibold border ${
+      app.cupPresent
+        ? 'border-[var(--success)]/40 bg-[var(--success)]/10 text-[var(--success)]'
+        : 'border-[var(--warning)]/40 bg-[var(--warning)]/10 text-[var(--warning)]'
+    }`;
+  };
+
+  // ===== Page Navigation =====
+  function showPage(page) {
+    app.page = page;
+    document.querySelectorAll('.page-panel').forEach(p => p.classList.toggle('hidden', p.id !== 'page-' + page));
+    document.querySelectorAll('.nav-btn').forEach(b => {
+      const act = b.dataset.page === page;
+      b.className = `nav-btn ${b.parentElement.classList.contains('studio-nav-bottom') ? 'flex-1' : 'px-3'} py-1.5 rounded-lg text-xs font-semibold transition ${
+        act ? 'bg-[var(--primary)] text-[var(--primary-foreground)]' : 'text-[var(--muted-foreground)] hover:text-[var(--foreground)]'
+      }`;
+    });
+    if (page === 'dashboard') setTimeout(drawLiveChart, 20);
+    if (page === 'history') setTimeout(() => { renderHistoryAnalytics(); renderLifetimeStats(); }, 20);
+    if (page === 'notes') renderNoteCanvas();
+  }
+  document.querySelectorAll('.nav-btn').forEach(b => { b.onclick = () => showPage(b.dataset.page); });
+
+  // ===== Dashboard Logic =====
+  function renderDashProfiles() {
+    document.querySelectorAll('.prof-btn').forEach(b => {
+      const act = Number(b.dataset.prof) === app.activeProfile;
+      b.className = `prof-btn px-3 py-1.5 rounded-xl border text-xs font-bold transition ${
+        act ? 'border-[var(--primary)] bg-[var(--primary)]/15 text-[var(--foreground)]' : 'border-[var(--border)] bg-[var(--background)] text-[var(--muted-foreground)]'
+      }`;
+    });
+    const p = PROFILES[app.activeProfile];
+    $('dashSubtitle').textContent = `${p.name} profile · ${p.weight.toFixed(1)} g target · ${app.grinding ? 'Grinding' : 'Ready'}`;
+    drawLiveChart();
+  }
+  document.querySelectorAll('.prof-btn').forEach(b => {
+    b.onclick = () => { if (!app.grinding) { app.activeProfile = Number(b.dataset.prof); renderDashProfiles(); } };
+  });
+
+  function drawLiveChart() {
+    const canvas = $('liveChart'); if (!canvas) return;
+    const d = devicePixelRatio || 1, w = canvas.clientWidth, h = canvas.clientHeight;
+    if (!w || !h) return;
+    if (canvas.width !== w * d || canvas.height !== h * d) { canvas.width = w * d; canvas.height = h * d; }
+    const c = canvas.getContext('2d');
+    c.setTransform(d, 0, 0, d, 0, 0); c.clearRect(0, 0, w, h);
+
+    const target = PROFILES[app.activeProfile].weight;
+    const maxY = Math.max(target * 1.15, ...app.liveSamples, 5);
+    const lineCol = cssVar('--border', '#333');
+    const accent = cssVar('--primary', '#c48a3a');
+    const sage = cssVar('--success', '#22c55e');
+    const muted = cssVar('--muted-foreground', '#888');
+
+    // Grid lines
+    c.strokeStyle = lineCol; c.lineWidth = 1;
+    for (let i = 1; i < 4; i++) {
+      c.beginPath(); c.moveTo(0, h * i / 4); c.lineTo(w, h * i / 4); c.stroke();
+    }
+
+    // Dashed Target Line (commit c58b51c!)
+    const ty = h - (target / maxY) * (h - 18) - 8;
+    c.save();
+    c.setLineDash([5, 4]);
+    c.strokeStyle = muted;
+    c.lineWidth = 1.3;
+    c.beginPath(); c.moveTo(0, ty); c.lineTo(w, ty); c.stroke();
+    c.setLineDash([]);
+    c.fillStyle = muted; c.font = '600 11px ui-monospace, monospace'; c.textAlign = 'right';
+    c.fillText(`Target ${target.toFixed(1)} g`, w - 6, Math.max(12, ty - 5));
+    c.restore();
+
+    if (app.liveSamples.length < 2) {
+      c.fillStyle = muted; c.font = '12px system-ui, sans-serif'; c.textAlign = 'center';
+      c.fillText('Press ▶ Start Grind to see live dosing curve', w / 2, h / 2 + 6);
+      return;
+    }
+
+    const drawSeries = (arr, maxVal, color, lw) => {
+      c.strokeStyle = color; c.lineWidth = lw; c.beginPath();
+      arr.forEach((v, i) => {
+        const x = (i / Math.max(1, arr.length - 1)) * w;
+        const y = h - (v / maxVal) * (h - 18) - 8;
+        if (i === 0) c.moveTo(x, y); else c.lineTo(x, y);
+      });
+      c.stroke();
+    };
+    drawSeries(app.liveFlows, 3.0, sage, 1.8);
+    drawSeries(app.liveSamples, maxY, accent, 2.5);
+  }
+
+  function stopDashGrind(completed) {
+    clearInterval(app.grindTimer);
+    app.grinding = false;
+    $('dashStartBtn').classList.remove('hidden');
+    $('dashStopBtn').classList.add('hidden');
+    $('dashDismissBtn').classList.toggle('hidden', !completed);
+    $('dashPhasePill').textContent = completed ? 'COMPLETE' : 'IDLE';
+    renderDashProfiles();
+  }
+
+  $('dashStartBtn').onclick = () => {
+    $('dashErrorBanner').classList.add('hidden');
+    if ($('setReqCup').checked && !app.cupPresent) {
+      $('dashErrorText').textContent = 'No cup detected on the scale. Place a cup or portafilter and try again.';
+      $('dashErrorBanner').classList.remove('hidden');
+      return;
+    }
+    const p = PROFILES[app.activeProfile];
+    app.grinding = true;
+    app.liveWeight = 0; app.liveFlow = 0;
+    app.liveSamples = [0]; app.liveFlows = [0];
+    $('dashStartBtn').classList.add('hidden');
+    $('dashStopBtn').classList.remove('hidden');
+    $('dashDismissBtn').classList.add('hidden');
+    $('dashPhasePill').textContent = 'GRINDING';
+    renderDashProfiles();
+
+    app.grindTimer = setInterval(() => {
+      const flow = 1.82 + (Math.random() - 0.5) * 0.16;
+      app.liveWeight = Math.min(p.weight + 0.02, Number((app.liveWeight + flow * 0.14).toFixed(2)));
+      app.liveFlow = app.liveWeight >= p.weight ? 0 : Number(flow.toFixed(2));
+      app.liveSamples.push(app.liveWeight);
+      app.liveFlows.push(app.liveFlow);
+      $('dashWeight').textContent = `${app.liveWeight.toFixed(2)} g`;
+      $('dashFlow').textContent = `${app.liveFlow.toFixed(2)} g/s`;
+      $('dashProgress').textContent = `${Math.min(100, Math.round((app.liveWeight / p.weight) * 100))}%`;
+      drawLiveChart();
+
+      if (app.liveWeight >= p.weight) {
+        stopDashGrind(true);
+        // Record new shot right into History & Lifetime Stats!
+        app.history.unshift({
+          id: (app.history[0]?.id || 162) + 1,
+          timestamp: Math.floor(Date.now() / 1000),
+          profile: app.activeProfile,
+          mode: 'weight',
+          target_weight: p.weight,
+          final_weight: app.liveWeight,
+          error_grams: Number((p.weight - app.liveWeight).toFixed(2)),
+          motor_time_ms: Math.round((app.liveWeight / 1.82) * 1000),
+          pulses: 1,
+          result: 'COMPLETE'
+        });
+        app.stats.total_grinds += 1;
+        if (app.activeProfile === 0) app.stats.single_shots += 1;
+        else if (app.activeProfile === 1) app.stats.double_shots += 1;
+        else app.stats.custom_shots += 1;
+        app.stats.total_weight_kg = Number((app.stats.total_weight_kg + app.liveWeight / 1000).toFixed(3));
+        showToast(`Grind complete: ${app.liveWeight.toFixed(2)} g (added to History!)`);
+      }
+    }, 90);
+  };
+  $('dashStopBtn').onclick = () => { stopDashGrind(false); showToast('Grind stopped'); };
+  $('dashTareBtn').onclick = () => { app.liveWeight = 0; app.liveSamples = []; app.liveFlows = []; $('dashWeight').textContent = '0.00 g'; $('dashProgress').textContent = '0%'; drawLiveChart(); showToast('Scale tared to 0.00 g'); };
+  $('dashDismissBtn').onclick = () => { $('dashDismissBtn').classList.add('hidden'); $('dashPhasePill').textContent = 'IDLE'; };
+  $('dashErrorClose').onclick = () => $('dashErrorBanner').classList.add('hidden');
+
+  // ===== History & Coffee Stats (mirrors device_page.h!) =====
+  function fmtDuration(sec) {
+    sec = Math.max(0, Math.round(sec || 0));
+    const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
+    if (h) return `${h}h ${m}m`;
+    return m ? `${m}m ${s}s` : `${s}s`;
+  }
+  function fmtCoffee(g) { return g >= 1000 ? `${(g / 1000).toFixed(2)} kg` : `${g.toFixed(1)} g`; }
+  function dayKey(ts) {
+    const d = new Date(ts * 1000);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+  function signed(n, d = 2) { return `${n > 0 ? '+' : ''}${n.toFixed(d)}`; }
+
+  function filteredHistory() {
+    const all = app.history;
+    const p = app.historyPeriod;
+    if (p === 'all') return all;
+    const now = new Date();
+    let startMs = 0, endMs = Infinity;
+    if (p === 'today') startMs = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    else if (p === '7d') startMs = now.getTime() - 7 * 86400000;
+    else if (p === '30d') startMs = now.getTime() - 30 * 86400000;
+    else if (p === 'custom') {
+      const f = $('dateFrom').value, t = $('dateTo').value;
+      if (f) startMs = new Date(f + 'T00:00:00').getTime();
+      if (t) endMs = new Date(t + 'T23:59:59.999').getTime();
+    }
+    return all.filter(s => s.timestamp * 1000 >= startMs && s.timestamp * 1000 <= endMs);
+  }
+
+  function drawUsageChart(sessions) {
+    const canvas = $('usageChart'); if (!canvas) return;
+    const d = devicePixelRatio || 1, w = canvas.clientWidth, h = canvas.clientHeight;
+    if (!w || !h) return;
+    if (canvas.width !== w * d || canvas.height !== h * d) { canvas.width = w * d; canvas.height = h * d; }
+    const c = canvas.getContext('2d');
+    c.setTransform(d, 0, 0, d, 0, 0); c.clearRect(0, 0, w, h);
+
+    const accent = cssVar('--primary', '#c48a3a');
+    const line = cssVar('--border', '#333');
+    const muted = cssVar('--muted-foreground', '#888');
+    const text = cssVar('--foreground', '#eee');
+
+    const buckets = new Map();
+    sessions.forEach(s => {
+      const k = dayKey(s.timestamp);
+      const cur = buckets.get(k) || { grams: 0, count: 0 };
+      cur.grams += s.final_weight; cur.count++;
+      buckets.set(k, cur);
+    });
+    const entries = [...buckets.entries()].sort((a, b) => a[0].localeCompare(b[0])).slice(-12);
+    if (!entries.length) {
+      c.fillStyle = muted; c.font = '12px system-ui, sans-serif'; c.textAlign = 'center';
+      c.fillText('No recorded grinds in this period', w / 2, h / 2); return;
+    }
+    const maxG = Math.max(10, ...entries.map(e => e[1].grams));
+    const padL = 8, padR = 8, padT = 20, padB = 22, plotW = w - padL - padR, plotH = h - padT - padB;
+    c.strokeStyle = line; c.lineWidth = 1;
+    c.beginPath(); c.moveTo(padL, padT + plotH); c.lineTo(w - padR, padT + plotH); c.stroke();
+
+    const slot = plotW / entries.length;
+    const barW = Math.min(34, Math.max(10, slot * 0.62));
+    entries.forEach(([k, v], idx) => {
+      const bh = Math.max(4, (v.grams / maxG) * plotH);
+      const x = padL + idx * slot + (slot - barW) / 2;
+      const y = padT + plotH - bh;
+      c.fillStyle = accent;
+      c.beginPath();
+      if (c.roundRect) c.roundRect(x, y, barW, bh, [5, 5, 0, 0]);
+      else c.rect(x, y, barW, bh);
+      c.fill();
+      c.fillStyle = text; c.font = '600 10.5px ui-monospace, monospace'; c.textAlign = 'center';
+      c.fillText(`${Math.round(v.grams)}g`, x + barW / 2, y - 5);
+      c.fillStyle = muted; c.font = '10px system-ui, sans-serif';
+      c.fillText(k.slice(5), x + barW / 2, h - 6);
+    });
+  }
+
+  function renderLifetimeStats() {
+    const st = app.stats;
+    const totalG = st.total_weight_kg * 1000;
+    $('lifeCoffee').textContent = fmtCoffee(totalG);
+    $('lifeShots').textContent = String(st.total_grinds);
+    $('lifeAcc').textContent = `${st.avg_accuracy_g.toFixed(2)} g`;
+    $('lifeMotor').textContent = fmtDuration(st.motor_runtime_sec);
+    $('lifeBreakdown').innerHTML = [
+      `Single: <strong>${st.single_shots}</strong>`,
+      `Double: <strong>${st.double_shots}</strong>`,
+      `Custom: <strong>${st.custom_shots}</strong>`,
+      `Avg pulses: <strong>${st.avg_pulses.toFixed(1)}</strong>`,
+      `≈ <strong>${(totalG / 250).toFixed(1)}</strong> × 250g bags`,
+      `Uptime: <strong>${st.device_uptime_hrs}h ${st.device_uptime_min}m</strong>`
+    ].map(h => `<span class="px-2.5 py-1 rounded-lg border border-[var(--border)] bg-[var(--background)] text-xs text-[var(--muted-foreground)]">${h}</span>`).join('');
+  }
+
+  function renderHistoryAnalytics() {
+    document.querySelectorAll('.ptab').forEach(b => {
+      const act = b.dataset.period === app.historyPeriod;
+      b.className = `ptab px-3 py-1.5 rounded-full border text-xs font-bold transition ${
+        act ? 'border-[var(--primary)] bg-[var(--primary)]/15 text-[var(--foreground)]' : 'border-[var(--border)] bg-[var(--card)] text-[var(--muted-foreground)]'
+      }`;
+    });
+    const sessions = filteredHistory();
+    const totalG = sessions.reduce((a, s) => a + s.final_weight, 0);
+    const totalMotorS = sessions.reduce((a, s) => a + s.motor_time_ms / 1000, 0);
+    const totalPulses = sessions.reduce((a, s) => a + s.pulses, 0);
+    const count = sessions.length;
+
+    $('periodCoffee').textContent = count ? fmtCoffee(totalG) : '0.0 g';
+    $('periodBags').textContent = count ? `≈ ${(totalG / 250).toFixed(2)} × 250g bags` : 'No grinds in period';
+    $('historyCount').textContent = String(count);
+    $('periodAvgDose').textContent = count ? `${(totalG / count).toFixed(1)} g avg dose` : '—';
+    const errors = sessions.map(s => s.error_grams), abs = errors.map(Math.abs);
+    $('averageError').textContent = abs.length ? `${(abs.reduce((a, b) => a + b, 0) / abs.length).toFixed(2)} g` : '—';
+    if (errors.length > 1) {
+      const avg = errors.reduce((a, b) => a + b, 0) / errors.length;
+      const sd = Math.sqrt(errors.reduce((a, b) => a + (b - avg) ** 2, 0) / errors.length);
+      $('consistency').textContent = `±${sd.toFixed(2)} g SD`;
+    } else $('consistency').textContent = '—';
+    $('periodPulses').textContent = count ? `${(totalPulses / count).toFixed(1)} / shot` : '—';
+    $('periodMotor').textContent = count ? `Motor ${fmtDuration(totalMotorS)}` : '—';
+
+    const names = ['Single', 'Double', 'Custom'];
+    $('profileBreakdown').innerHTML = [0, 1, 2].map(id => {
+      const items = sessions.filter(s => s.profile === id);
+      const g = items.reduce((a, s) => a + s.final_weight, 0);
+      return `<span class="px-2.5 py-1 rounded-lg border border-[var(--border)] bg-[var(--background)] text-xs text-[var(--muted-foreground)]">${names[id]}: <strong class="text-[var(--foreground)]">${items.length}</strong> (${g.toFixed(0)}g)</span>`;
+    }).join('');
+    $('filteredBadge').textContent = `${count} of ${app.history.length} saved`;
+
+    drawUsageChart(sessions);
+    if (!sessions.some(s => s.id === app.selectedSessionId)) {
+      app.selectedSessionId = sessions[0]?.id || null;
+    }
+    renderHistoryList(sessions);
+    renderHistoryDetail();
+  }
+
+  function renderHistoryList(sessions) {
+    const list = $('historyList');
+    if (!sessions.length) {
+      list.innerHTML = '<div class="text-xs text-[var(--muted-foreground)] py-6 text-center">No recorded grinds match this period.</div>';
+      return;
+    }
+    const names = ['Single', 'Double', 'Custom'];
+    list.innerHTML = sessions.map(s => {
+      const act = s.id === app.selectedSessionId;
+      const dt = new Date(s.timestamp * 1000).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+      return `
+        <button type="button" data-sid="${s.id}" class="shot-btn w-full text-left p-2.5 rounded-xl border transition flex items-center justify-between gap-2 ${
+          act ? 'border-[var(--primary)] bg-[var(--primary)]/12' : 'border-[var(--border)] bg-[var(--background)] hover:border-[var(--primary)]/50'
+        }">
+          <div>
+            <div class="text-xs font-bold">${dt} · ${names[s.profile]}</div>
+            <div class="text-xs text-[var(--muted-foreground)] num">${s.target_weight.toFixed(1)}g target · ${s.pulses}p</div>
+          </div>
+          <div class="text-right num">
+            <div class="text-xs font-bold">${s.final_weight.toFixed(2)} g</div>
+            <div class="text-xs text-[var(--success)]">${signed(-s.error_grams)} g</div>
+          </div>
+        </button>
+      `;
+    }).join('');
+    list.querySelectorAll('.shot-btn').forEach(b => {
+      b.onclick = () => { app.selectedSessionId = Number(b.dataset.sid); renderHistoryList(sessions); renderHistoryDetail(); };
+    });
+  }
+
+  function renderHistoryDetail() {
+    const el = $('historyDetail');
+    const s = app.history.find(x => x.id === app.selectedSessionId);
+    if (!s) {
+      el.innerHTML = '<div class="text-xs text-[var(--muted-foreground)] py-8 text-center">Select a grind to inspect its trace.</div>';
+      return;
+    }
+    const dt = new Date(s.timestamp * 1000).toLocaleString();
+    el.innerHTML = `
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h3 class="text-sm font-bold">${dt}</h3>
+          <p class="text-xs text-[var(--muted-foreground)]">${s.result} · Session #${s.id}</p>
+        </div>
+        <span class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-[var(--success)]/15 text-[var(--success)]">${signed(-s.error_grams)} g</span>
+      </div>
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+        <div class="p-2 rounded-xl bg-[var(--background)] border border-[var(--border)]"><div class="text-[var(--muted-foreground)]">Target</div><div class="font-bold num">${s.target_weight.toFixed(1)} g</div></div>
+        <div class="p-2 rounded-xl bg-[var(--background)] border border-[var(--border)]"><div class="text-[var(--muted-foreground)]">Final</div><div class="font-bold num">${s.final_weight.toFixed(2)} g</div></div>
+        <div class="p-2 rounded-xl bg-[var(--background)] border border-[var(--border)]"><div class="text-[var(--muted-foreground)]">Motor time</div><div class="font-bold num">${(s.motor_time_ms / 1000).toFixed(2)} s</div></div>
+        <div class="p-2 rounded-xl bg-[var(--background)] border border-[var(--border)]"><div class="text-[var(--muted-foreground)]">Pulses</div><div class="font-bold num">${s.pulses}</div></div>
+      </div>
+      <div class="w-full h-[175px] rounded-xl bg-[var(--background)] border border-[var(--border)] p-2">
+        <canvas id="sessionTraceCanvas" class="w-full h-full block"></canvas>
+      </div>
+    `;
+    const canvas = $('sessionTraceCanvas');
+    const d = devicePixelRatio || 1, w = canvas.clientWidth, h = canvas.clientHeight;
+    if (!w || !h) return;
+    canvas.width = w * d; canvas.height = h * d;
+    const c = canvas.getContext('2d');
+    c.setTransform(d, 0, 0, d, 0, 0);
+    const accent = cssVar('--primary', '#c48a3a'), sage = cssVar('--success', '#22c55e');
+    const pts = 40;
+    const weights = [], flows = [];
+    for (let i = 0; i < pts; i++) {
+      const f = i / (pts - 1);
+      weights.push(f < 0.85 ? s.final_weight * (f / 0.85) * 0.97 : s.final_weight * (0.97 + 0.03 * ((f - 0.85) / 0.15)));
+      flows.push(f < 0.82 ? 1.85 + Math.sin(i * 0.6) * 0.12 : (f < 0.92 ? 0.6 : 0));
+    }
+    const draw = (arr, maxV, col, lw) => {
+      c.strokeStyle = col; c.lineWidth = lw; c.beginPath();
+      arr.forEach((v, i) => {
+        const x = (i / (pts - 1)) * w, y = h - (v / maxV) * (h - 14) - 6;
+        if (i === 0) c.moveTo(x, y); else c.lineTo(x, y);
+      });
+      c.stroke();
+    };
+    draw(flows, 2.8, sage, 1.8);
+    draw(weights, s.final_weight * 1.1, accent, 2.4);
+  }
+
+  document.querySelectorAll('.ptab').forEach(b => {
+    b.onclick = () => {
+      app.historyPeriod = b.dataset.period;
+      $('customDateRange').classList.toggle('hidden', app.historyPeriod !== 'custom');
+      renderHistoryAnalytics();
+    };
+  });
+  $('dateFrom').onchange = $('dateTo').onchange = () => renderHistoryAnalytics();
+  $('refreshHistoryBtn').onclick = () => { renderHistoryAnalytics(); renderLifetimeStats(); showToast('History & stats refreshed'); };
+  $('exportPeriodCsv').onclick = () => {
+    const items = filteredHistory();
+    if (!items.length) { showToast('No grinds in period to export'); return; }
+    const rows = ['date,session_id,profile,target_g,final_g,error_g,pulses,motor_s,result',
+      ...items.map(s => `${new Date(s.timestamp * 1000).toISOString()},${s.id},${PROFILES[s.profile].name},${s.target_weight.toFixed(2)},${s.final_weight.toFixed(2)},${s.error_grams.toFixed(2)},${s.pulses},${(s.motor_time_ms / 1000).toFixed(2)},${s.result}`)];
+    const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `smartgrind-usage-${app.historyPeriod}.csv`; a.click();
+    showToast(`Exported ${items.length} sessions to CSV`);
+  };
+
+  // ===== Morning Note Studio =====
+  function renderNoteCanvas() {
+    const canvas = $('noteCanvas'); if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const W = 280, H = 456;
+    const themes = {
+      espresso: { bg1: '#1a120b', bg2: '#050403', accent: '#f59e0b', text: '#fef3c7' },
+      midnight: { bg1: '#0c1829', bg2: '#04070d', accent: '#38bdf8', text: '#e0f2fe' },
+      forest:   { bg1: '#0d1f14', bg2: '#040a06', accent: '#4ade80', text: '#dcfce7' }
+    };
+    const th = themes[$('noteTheme').value] || themes.espresso;
+    const grad = ctx.createLinearGradient(0, 0, 0, H);
+    grad.addColorStop(0, th.bg1); grad.addColorStop(1, th.bg2);
+    ctx.fillStyle = grad; ctx.fillRect(0, 0, W, H);
+    ctx.strokeStyle = th.accent + '66'; ctx.lineWidth = 2;
+    ctx.strokeRect(14, 14, W - 28, H - 28);
+    ctx.fillStyle = th.accent; ctx.font = '700 12px system-ui, sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('MORNING NOTE', W / 2, 54);
+    ctx.fillStyle = th.text; ctx.font = '800 24px system-ui, sans-serif';
+    ctx.fillText($('noteHead').value || 'Good morning', W / 2, 165, W - 44);
+    ctx.font = '500 18px system-ui, sans-serif';
+    const lines = ($('noteBody').value || '').split('\n');
+    lines.forEach((ln, i) => ctx.fillText(ln, W / 2, 222 + i * 32, W - 44));
+    ctx.fillStyle = '#9ca3af'; ctx.font = '12px system-ui, sans-serif';
+    ctx.fillText('Tap AMOLED to dismiss', W / 2, H - 36);
+  }
+  ['noteHead', 'noteBody', 'noteTheme', 'noteMode'].forEach(id => { $(id).oninput = renderNoteCanvas; });
+  $('presetHe').onclick = () => { $('noteHead').value = 'בוקר טוב אהובתי ☕'; $('noteBody').value = 'שיהיה יום מושלם!\nהאספרסו מחכה לך ❤️'; renderNoteCanvas(); };
+  $('presetEn').onclick = () => { $('noteHead').value = 'Fresh Ethiopian Beans'; $('noteBody').value = 'Dialed in at 18.0g\nEnjoy your morning shot!'; renderNoteCanvas(); };
+  $('notePreviewBtn').onclick = () => { $('noteBadge').textContent = 'Preview: shown ✓'; showToast('AMOLED preview outcome: shown'); };
+  $('noteSendBtn').onclick = () => { $('noteBadge').textContent = 'Armed ✓'; showToast('Morning Note uploaded (255 KB RGB565)'); };
+
+  // ===== Settings =====
+  function renderLayoutBtns() {
+    document.querySelectorAll('.lay-btn').forEach(b => {
+      const act = b.dataset.lay === app.grindLayout;
+      b.className = `lay-btn py-2 rounded-xl border font-bold transition ${
+        act ? 'border-[var(--primary)] bg-[var(--primary)]/15 text-[var(--foreground)]' : 'border-[var(--border)] bg-[var(--background)] text-[var(--muted-foreground)]'
+      }`;
+    });
+  }
+  document.querySelectorAll('.lay-btn').forEach(b => { b.onclick = () => { app.grindLayout = b.dataset.lay; renderLayoutBtns(); }; });
+  $('saveSettingsBtn').onclick = () => {
+    const manualTxt = $('setManualHold').checked ? 'Hold-to-Grind' : 'Start/Stop';
+    showToast(`Settings saved (Manual: ${manualTxt}, Layout: ${app.grindLayout})`);
+  };
+
+  window.addEventListener('themechange', () => {
+    drawLiveChart();
+    if (app.page === 'history') { drawUsageChart(filteredHistory()); renderHistoryDetail(); }
+  });
+  window.addEventListener('resize', () => {
+    drawLiveChart();
+    if (app.page === 'history') { drawUsageChart(filteredHistory()); renderHistoryDetail(); }
+  });
+
+  // Init
+  renderDashProfiles();
+  renderLayoutBtns();
+  renderNoteCanvas();
+  showPage('history');
+})();
+</script>
+</body>
+</html>

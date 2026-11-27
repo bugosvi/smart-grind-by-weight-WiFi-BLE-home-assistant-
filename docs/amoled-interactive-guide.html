@@ -1,0 +1,1826 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>מדריך אינטראקטיבי למסך ה-AMOLED | Smart Grind-by-Weight</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    .amoled-bezel {
+      background: linear-gradient(145deg, #27272a 0%, #111114 48%, #1d1d21 100%);
+      box-shadow: 0 18px 45px rgba(0, 0, 0, 0.38), inset 0 1px 1px rgba(255, 255, 255, 0.14);
+    }
+    .amoled-screen {
+      width: 280px;
+      height: 456px;
+      background: #000000;
+      color: #ffffff;
+      user-select: none;
+      touch-action: none;
+      position: relative;
+      overflow: hidden;
+      font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      direction: ltr;
+    }
+    .tabular-nums { font-variant-numeric: tabular-nums; }
+    @keyframes pulseRing {
+      0% { transform: scale(0.95); opacity: 0.9; }
+      100% { transform: scale(1.06); opacity: 0; }
+    }
+    .animate-pulse-ring {
+      animation: pulseRing 1.1s ease-out infinite;
+    }
+    .screen-pill-active {
+      border-color: var(--primary);
+      background: color-mix(in srgb, var(--primary) 14%, var(--card));
+    }
+    .long-press-bar {
+      transition: width 0.55s linear;
+    }
+  </style>
+  <style>
+    :root {
+      --background: #0d100e;
+      --content: #131815;
+      --card: #161c18;
+      --card-border: #27302a;
+      --border: #2a342e;
+      --foreground: #f2f4ef;
+      --muted-foreground: #9da89f;
+      --primary: #d97706;
+      --primary-foreground: #ffffff;
+      --accent: #38bdf8;
+      --success: #22c55e;
+      --warning: #f59e0b;
+      --error: #ef4444;
+    }
+    @media (prefers-color-scheme: light) {
+      :root {
+        --background: #f5f3ec;
+        --content: #ffffff;
+        --card: #ffffff;
+        --card-border: #e4e0d5;
+        --border: #ddd8cb;
+        --foreground: #181a17;
+        --muted-foreground: #5f665f;
+        --primary: #c2590a;
+        --primary-foreground: #ffffff;
+        --accent: #0284c7;
+        --success: #16a34a;
+        --warning: #d97706;
+        --error: #dc2626;
+      }
+    }
+  </style>
+</head>
+<body class="bg-[var(--background)] text-[var(--foreground)] antialiased m-0 p-0">
+  <div class="max-w-6xl mx-auto px-3 sm:px-6 py-5 space-y-5">
+
+    <!-- Header + Guided Tour Bar -->
+    <header class="bg-[var(--card)] border border-[var(--border)] rounded-2xl p-4 sm:p-5 flex flex-col gap-3">
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <div class="space-y-1">
+          <div class="flex flex-wrap items-center gap-2">
+            <span class="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-[var(--primary)] text-[var(--primary-foreground)]">Waveshare 1.64" AMOLED · 280×456</span>
+            <span class="px-2.5 py-0.5 rounded-full text-xs font-medium border border-[var(--border)] text-[var(--muted-foreground)]">סימולטור חי ומדריך שימוש</span>
+          </div>
+          <h1 class="text-lg sm:text-xl font-bold text-[var(--foreground)]">מדריך אינטראקטיבי לכל מסכי המטחנה והמעברים ביניהם</h1>
+          <p class="text-xs sm:text-sm text-[var(--muted-foreground)]">
+            אפשר <strong>להחליק ממש על מסך ה-AMOLED</strong> (ימינה/שמאלה בין הטאבים, למעלה/למטה בין משקל לזמן), <strong>ללחוץ ארוכות</strong> על המשקל כדי לערוך, או להפעיל <strong>טחינה חיה</strong>.
+          </p>
+        </div>
+
+        <!-- Tour Controls -->
+        <div class="flex items-center gap-2 shrink-0">
+          <button id="tourPrevBtn" class="px-3 py-1.5 rounded-lg border border-[var(--border)] bg-[var(--background)] hover:bg-[var(--accent)]/15 text-xs font-medium transition">
+            → הקודם
+          </button>
+          <span id="tourStepLabel" class="text-xs font-mono tabular-nums px-2 py-1 rounded bg-[var(--background)] border border-[var(--border)] text-[var(--muted-foreground)]">
+            שלב 1 / 9
+          </span>
+          <button id="tourNextBtn" class="px-3 py-1.5 rounded-lg bg-[var(--primary)] text-[var(--primary-foreground)] hover:opacity-90 text-xs font-semibold transition">
+            הבא ←
+          </button>
+        </div>
+      </div>
+
+      <!-- Quick Screen Jump Strip -->
+      <div class="flex items-center gap-1.5 overflow-x-auto pb-1 pt-1 border-t border-[var(--border)]" id="screenTabs"></div>
+    </header>
+
+    <!-- Main 2-Column Workspace -->
+    <div class="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-5 items-start">
+
+      <!-- Left/Right (RTL Right): Physical AMOLED Hardware Mockup -->
+      <div class="flex flex-col items-center gap-3">
+        <div class="amoled-bezel rounded-[36px] p-[14px] relative">
+          <!-- Subtle top speaker/sensor notch dot -->
+          <div class="w-10 h-1 rounded-full bg-white/15 mx-auto mb-2"></div>
+
+          <!-- Real 280x456 AMOLED Display -->
+          <div id="amoled" class="amoled-screen rounded-[24px] border border-white/10">
+            <!-- Top Status Bar (Wi-Fi / BLE / Warning / Update) -->
+            <div id="statusBar" class="absolute top-2 left-3 right-3 z-20 flex items-center justify-between pointer-events-none">
+              <div class="flex items-center gap-2">
+                <!-- Wi-Fi icon -->
+                <svg id="iconWifi" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#00AA00" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/>
+                </svg>
+                <!-- BLE icon -->
+                <svg id="iconBle" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#00AAFF" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.35">
+                  <polyline points="6.5 6.5 17.5 17.5 12 23 12 1 17.5 6.5 6.5 17.5"/>
+                </svg>
+              </div>
+              <div id="topModePill" class="text-[11px] font-semibold tracking-wider uppercase px-2 py-0.5 rounded-full bg-white/10 text-[#CCCCCC]">
+                WEIGHT
+              </div>
+            </div>
+
+            <!-- Dynamic Screen Canvas / DOM Container -->
+            <div id="screenContent" class="w-full h-full relative"></div>
+
+            <!-- Gesture Toast inside screen -->
+            <div id="gestureToast" class="pointer-events-none absolute top-9 left-1/2 -translate-x-1/2 z-30 px-2.5 py-1 rounded-full bg-white/15 backdrop-blur text-[11px] font-semibold text-white whitespace-nowrap opacity-0 transition-opacity duration-200"></div>
+          </div>
+
+          <!-- Bottom bezel home indicator -->
+          <div class="w-12 h-1 rounded-full bg-white/10 mx-auto mt-2"></div>
+        </div>
+
+        <!-- Hardware Swipe & Physical Controls Helper under the device -->
+        <div class="w-full max-w-[308px] bg-[var(--card)] border border-[var(--border)] rounded-xl p-3 space-y-2.5">
+          <div class="text-xs font-semibold text-[var(--muted-foreground)] flex items-center justify-between">
+            <span>פקדי מחווה מהירים (בנוסף להחלקה על המסך)</span>
+            <span class="font-mono text-[var(--foreground)]">280×456</span>
+          </div>
+          <div class="grid grid-cols-3 gap-1.5">
+            <button id="btnSwipeLeft" class="px-2 py-1.5 rounded-lg border border-[var(--border)] bg-[var(--background)] hover:bg-[var(--accent)]/15 text-xs font-medium transition">
+              → טאב קודם
+            </button>
+            <button id="btnVerticalSwipe" class="px-2 py-1.5 rounded-lg border border-[var(--border)] bg-[var(--background)] hover:bg-[var(--accent)]/15 text-xs font-medium transition" title="החלקה אנכית: מעבר בין משקל (g) לזמן (s)">
+              ⇅ משקל/זמן
+            </button>
+            <button id="btnSwipeRight" class="px-2 py-1.5 rounded-lg border border-[var(--border)] bg-[var(--background)] hover:bg-[var(--accent)]/15 text-xs font-medium transition">
+              טאב הבא ←
+            </button>
+          </div>
+          <div class="grid grid-cols-2 gap-1.5">
+            <button id="btnToggleLayout" class="px-2 py-1.5 rounded-lg border border-[var(--border)] bg-[var(--background)] hover:bg-[var(--accent)]/15 text-xs font-medium transition">
+              תצוגה: פורטפילטר
+            </button>
+            <button id="btnTriggerNote" class="px-2 py-1.5 rounded-lg border border-[var(--border)] bg-[var(--background)] hover:bg-[var(--accent)]/15 text-xs font-medium transition">
+              הצג Morning Note
+            </button>
+          </div>
+          <!-- Cup simulator toggle (for GRIND_COMPLETE + button demo) -->
+          <div class="flex items-center justify-between pt-1.5 border-t border-[var(--border)] text-xs">
+            <span class="text-[var(--muted-foreground)]">חיישן כוס על המשקל:</span>
+            <button id="btnToggleCup" class="px-2.5 py-1 rounded-md font-semibold text-xs border border-[var(--border)] transition">
+              כוס מונחת ✓
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Guide & Navigation Map Panel -->
+      <div class="space-y-4 min-w-0">
+
+        <!-- Active Screen Detailed Guide -->
+        <section class="bg-[var(--card)] border border-[var(--border)] rounded-2xl p-4 sm:p-5 space-y-4">
+          <div class="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] pb-3">
+            <div>
+              <div id="guideCategory" class="text-xs font-semibold text-[var(--primary)]">מסך ראשי · READY</div>
+              <h2 id="guideTitle" class="text-base sm:text-lg font-bold text-[var(--foreground)] mt-0.5">פרופיל Double (18.0g)</h2>
+            </div>
+            <span id="guideBadge" class="px-2.5 py-1 rounded-lg text-xs font-mono bg-[var(--background)] border border-[var(--border)] text-[var(--muted-foreground)]">
+              UIState::READY
+            </span>
+          </div>
+
+          <p id="guideDesc" class="text-sm text-[var(--foreground)] leading-relaxed"></p>
+
+          <!-- Interactive Gestures / Actions on THIS screen -->
+          <div class="space-y-2">
+            <div class="text-xs font-semibold text-[var(--muted-foreground)]">פעולות ומחוות זמינות במסך זה:</div>
+            <div id="guideActions" class="grid grid-cols-1 sm:grid-cols-2 gap-2"></div>
+          </div>
+
+          <!-- Pro Tip Callout -->
+          <div id="guideTipBox" class="rounded-xl border border-[var(--border)] bg-[var(--background)] p-3 text-xs text-[var(--muted-foreground)] leading-relaxed flex items-start gap-2.5">
+            <span class="text-sm leading-none mt-0.5">💡</span>
+            <div id="guideTip"></div>
+          </div>
+        </section>
+
+        <!-- Interactive Screen Flow / Navigation Architecture Map -->
+        <section class="bg-[var(--card)] border border-[var(--border)] rounded-2xl p-4 sm:p-5 space-y-3">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h3 class="text-sm font-bold text-[var(--foreground)]">מפת מעברים בין כל המסכים (לחץ על כל מסך לקפיצה ישירה)</h3>
+              <p class="text-xs text-[var(--muted-foreground)]">הקרוסלה הראשית עוברת אופקית בין 6 טאבים; מכל טאב יוצאות פעולות למסכי העריכה, הטחינה וההגדרות.</p>
+            </div>
+          </div>
+
+          <!-- Row 1: 6 Horizontal Ready Carousel Tabs -->
+          <div class="space-y-1.5">
+            <div class="text-xs font-semibold text-[var(--muted-foreground)] flex items-center gap-1.5">
+              <span>קרוסלה אופקית (החלקה ימינה / שמאלה על מסך הבית):</span>
+            </div>
+            <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2" id="mapReadyRow"></div>
+          </div>
+
+          <!-- Arrows indicator -->
+          <div class="flex flex-wrap items-center justify-center gap-3 text-xs text-[var(--muted-foreground)] py-1">
+            <span>↓ לחיצה ארוכה על משקל → <strong class="text-[var(--foreground)]">עריכה</strong></span>
+            <span>·</span>
+            <span>↓ לחיצת GRIND → <strong class="text-[var(--foreground)]">טחינה וסיום</strong></span>
+            <span>·</span>
+            <span>↓ טאב MENU → <strong class="text-[var(--foreground)]">הגדרות</strong></span>
+            <span>·</span>
+            <span>↓ תזמון/Studio → <strong class="text-[var(--foreground)]">Morning Note</strong></span>
+          </div>
+
+          <!-- Row 2: Secondary & Modal Screens -->
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-2" id="mapSubRow"></div>
+        </section>
+
+        <!-- Gesture Legend Cheat Sheet -->
+        <section class="bg-[var(--card)] border border-[var(--border)] rounded-2xl p-4 space-y-2.5">
+          <h3 class="text-sm font-bold text-[var(--foreground)]">מקרא מחוות מהיר לשימוש יומיומי</h3>
+          <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+            <div class="p-2.5 rounded-xl bg-[var(--background)] border border-[var(--border)]">
+              <div class="font-bold text-[var(--foreground)]">👈 👉 החלקה אופקית</div>
+              <div class="text-[var(--muted-foreground)] mt-0.5">מעבר בין Manual, Single, Double, Custom, Wi-Fi ו-Menu.</div>
+            </div>
+            <div class="p-2.5 rounded-xl bg-[var(--background)] border border-[var(--border)]">
+              <div class="font-bold text-[var(--foreground)]">👆 לחיצה ארוכה (0.6s)</div>
+              <div class="text-[var(--muted-foreground)] mt-0.5">על המשקל/זמן בפרופיל ← פותח מסך עריכת יעד (+/-).</div>
+            </div>
+            <div class="p-2.5 rounded-xl bg-[var(--background)] border border-[var(--border)]">
+              <div class="font-bold text-[var(--foreground)]">☝️ 👇 החלקה אנכית</div>
+              <div class="text-[var(--muted-foreground)] mt-0.5">החלפה בין מצב משקל (g) למצב זמן (s) כשהמחוות פעילות.</div>
+            </div>
+            <div class="p-2.5 rounded-xl bg-[var(--background)] border border-[var(--border)]">
+              <div class="font-bold text-[var(--foreground)]">🔵 כפתור + בסיום</div>
+              <div class="text-[var(--muted-foreground)] mt-0.5">פולס השלמה קצר (Top-up) ומדידה מחדש; נעלם בהרמת הכוס.</div>
+            </div>
+          </div>
+        </section>
+
+      </div>
+    </div>
+  </div>
+
+<script>
+(() => {
+  // ===== State =====
+  const READY_TABS = ['manual', 'single', 'double', 'custom', 'wifi', 'menu_tab'];
+  const state = {
+    // screen: 'ready' | 'edit' | 'grinding' | 'complete' | 'menu' | 'note'
+    screen: 'ready',
+    readyTabIndex: 2, // Default: DOUBLE (18.0g)
+    mode: 'WEIGHT', // 'WEIGHT' | 'TIME'
+    profiles: [
+      { id: 0, name: 'SINGLE', weight: 9.0, time: 5.5 },
+      { id: 1, name: 'DOUBLE', weight: 18.0, time: 9.2 },
+      { id: 2, name: 'CUSTOM', weight: 20.5, time: 10.5 }
+    ],
+    editDraftValue: 18.0,
+    manualWeight: 0.0,
+    manualHolding: false,
+    manualHoldMode: false, // false = Start/Stop (default), true = Hold to Grind
+    wifiSetupMode: false, // false = Connected, true = Setup AP + QR
+    grindLayout: 'portafilter', // 'portafilter' | 'classic'
+    menuSubPage: 'main', // 'main' | 'display' | 'grind' | 'wifi' | 'scale'
+    cupPresent: true,
+    // Active grind simulation
+    grindPhase: 'IDLE', // 'TARING' | 'GRINDING' | 'SETTLING' | 'PULSE' | 'COMPLETE'
+    grindCurrent: 0.0,
+    grindTarget: 18.0,
+    grindElapsed: 0.0,
+    grindFlow: 0.0,
+    grindMoundVisual: 0.0,
+    grindDeviation: 0.02,
+    pulseCount: 0,
+    doneGlow: 0,
+    tareAngle: 0,
+    lastSampleT: -1,
+    chartHistory: [],
+    grindRaf: null,
+    grindTimerStart: 0,
+    grindLastTs: 0,
+    manualInterval: null,
+    particles: Array.from({ length: 18 }, (_, i) => ({
+      x: 140,
+      y: 112,
+      vy: 2.2,
+      vx: 0,
+      size: 2 + (i % 2),
+      color: ['#5C3317', '#7A4622', '#9C6134', '#BA7B47', '#4A2610'][i % 5],
+      active: false
+    })),
+    noteOffset: { x: 0, y: 0 }
+  };
+
+  function resetCoffeeParticle(p, spread, flowSpeedScale) {
+    p.x = 140 + (Math.random() - 0.5) * spread - (p.size * 0.5);
+    p.y = 112 + Math.random() * 4;
+    p.vy = (1.6 + Math.random() * 1.4) * flowSpeedScale;
+    p.vx = (Math.random() - 0.5) * 0.22;
+    p.active = true;
+  }
+
+  function buildCompletedChartSeries(target) {
+    const pts = [];
+    const total = 54;
+    for (let i = 0; i < total; i++) {
+      const f = i / (total - 1);
+      if (f < 0.78) {
+        const p = f / 0.78;
+        pts.push({ w: target * 0.96 * p, f: 1.58 + Math.sin(i * 0.45) * 0.09 });
+      } else if (f < 0.88) {
+        const p = (f - 0.78) / 0.10;
+        pts.push({ w: target * (0.96 + 0.025 * p), f: Math.max(0, 0.45 * (1 - p)) });
+      } else if (f < 0.94) {
+        const p = (f - 0.88) / 0.06;
+        pts.push({ w: target * (0.985 + 0.016 * p), f: 0.78 });
+      } else {
+        pts.push({ w: target + 0.02, f: 0 });
+      }
+    }
+    return pts;
+  }
+
+  // Guided tour sequence (9 logical steps)
+  const TOUR_STEPS = [
+    { key: 'ready:double', label: '1. Double (בית)', apply: () => { stopGrindSim(); state.screen = 'ready'; state.readyTabIndex = 2; } },
+    { key: 'ready:single', label: '2. Single', apply: () => { stopGrindSim(); state.screen = 'ready'; state.readyTabIndex = 1; } },
+    { key: 'edit', label: '3. עריכת יעד', apply: () => { stopGrindSim(); state.readyTabIndex = 2; openEdit(); } },
+    { key: 'grinding', label: '4. טחינה (פורטפילטר)', apply: () => { state.readyTabIndex = 2; startGrindSim(); } },
+    { key: 'complete', label: '5. סיום + פולס', apply: () => { jumpToComplete(); } },
+    { key: 'ready:manual', label: '6. Manual & Tare', apply: () => { stopGrindSim(); state.screen = 'ready'; state.readyTabIndex = 0; } },
+    { key: 'ready:wifi', label: '7. Wi-Fi & QR', apply: () => { stopGrindSim(); state.screen = 'ready'; state.readyTabIndex = 4; } },
+    { key: 'menu', label: '8. תפריט הגדרות', apply: () => { stopGrindSim(); state.screen = 'menu'; state.menuSubPage = 'main'; } },
+    { key: 'note', label: '9. Morning Note', apply: () => { stopGrindSim(); state.screen = 'note'; } }
+  ];
+
+  // ===== DOM Refs =====
+  const amoledEl = document.getElementById('amoled');
+  const screenContentEl = document.getElementById('screenContent');
+  const statusBarEl = document.getElementById('statusBar');
+  const topModePillEl = document.getElementById('topModePill');
+  const gestureToastEl = document.getElementById('gestureToast');
+  const screenTabsEl = document.getElementById('screenTabs');
+  const mapReadyRowEl = document.getElementById('mapReadyRow');
+  const mapSubRowEl = document.getElementById('mapSubRow');
+
+  const guideCategoryEl = document.getElementById('guideCategory');
+  const guideTitleEl = document.getElementById('guideTitle');
+  const guideBadgeEl = document.getElementById('guideBadge');
+  const guideDescEl = document.getElementById('guideDesc');
+  const guideActionsEl = document.getElementById('guideActions');
+  const guideTipEl = document.getElementById('guideTip');
+  const tourStepLabelEl = document.getElementById('tourStepLabel');
+
+  const btnToggleLayout = document.getElementById('btnToggleLayout');
+  const btnToggleCup = document.getElementById('btnToggleCup');
+
+  let toastTimeout = null;
+  function showToast(msg) {
+    gestureToastEl.textContent = msg;
+    gestureToastEl.style.opacity = '1';
+    clearTimeout(toastTimeout);
+    toastTimeout = setTimeout(() => { gestureToastEl.style.opacity = '0'; }, 1400);
+  }
+
+  function currentProfile() {
+    if (state.readyTabIndex >= 1 && state.readyTabIndex <= 3) {
+      return state.profiles[state.readyTabIndex - 1];
+    }
+    return state.profiles[1]; // Default DOUBLE
+  }
+
+  function formatTarget(prof) {
+    if (state.mode === 'WEIGHT') return `${prof.weight.toFixed(1)}g`;
+    return `${prof.time.toFixed(1)}s`;
+  }
+
+  function activeKey() {
+    if (state.screen === 'ready') return `ready:${READY_TABS[state.readyTabIndex]}`;
+    return state.screen;
+  }
+
+  // ===== Navigation Actions =====
+  function goReadyTab(idx, toastMsg) {
+    stopGrindSim();
+    state.screen = 'ready';
+    state.readyTabIndex = Math.max(0, Math.min(READY_TABS.length - 1, idx));
+    if (toastMsg) showToast(toastMsg);
+    render();
+  }
+
+  function openEdit() {
+    stopGrindSim();
+    const prof = currentProfile();
+    state.editDraftValue = state.mode === 'WEIGHT' ? prof.weight : prof.time;
+    state.screen = 'edit';
+    showToast('Long-Press → Edit Target');
+    render();
+  }
+
+  function toggleMode() {
+    state.mode = state.mode === 'WEIGHT' ? 'TIME' : 'WEIGHT';
+    showToast(state.mode === 'WEIGHT' ? '⇅ מצב משקל (g)' : '⇅ מצב זמן (s)');
+    render();
+  }
+
+  function stopGrindSim() {
+    if (state.grindRaf) cancelAnimationFrame(state.grindRaf);
+    state.grindRaf = null;
+    if (state.manualInterval) clearInterval(state.manualInterval);
+    state.manualInterval = null;
+    state.manualHolding = false;
+  }
+
+  function startGrindSim() {
+    stopGrindSim();
+    const prof = currentProfile();
+    state.screen = 'grinding';
+    state.grindPhase = 'TARING';
+    state.grindTarget = state.mode === 'WEIGHT' ? prof.weight : prof.time;
+    state.grindCurrent = 0.0;
+    state.grindElapsed = 0.0;
+    state.grindFlow = 0.0;
+    state.grindMoundVisual = 0.0;
+    state.pulseCount = 0;
+    state.doneGlow = 0;
+    state.tareAngle = 0;
+    state.lastSampleT = -1;
+    state.chartHistory = [];
+    state.particles.forEach(p => { p.active = false; });
+    state.grindTimerStart = performance.now();
+    state.grindLastTs = state.grindTimerStart;
+    render();
+    runGrindLoop();
+  }
+
+  function jumpToComplete() {
+    stopGrindSim();
+    const prof = currentProfile();
+    state.screen = 'complete';
+    state.grindPhase = 'COMPLETE';
+    state.grindTarget = state.mode === 'WEIGHT' ? prof.weight : prof.time;
+    state.grindDeviation = state.mode === 'WEIGHT' ? 0.02 : 0.0;
+    state.grindCurrent = Number((state.grindTarget + state.grindDeviation).toFixed(2));
+    state.grindMoundVisual = 1.0;
+    state.grindFlow = 0.0;
+    state.doneGlow = 1.0;
+    state.pulseCount = 0;
+    state.chartHistory = buildCompletedChartSeries(state.grindTarget);
+    state.particles.forEach(p => { p.active = false; });
+    render();
+  }
+
+  function triggerTopUpPulse() {
+    if (!state.cupPresent && state.mode === 'WEIGHT') {
+      showToast('Cup removed — place cup back');
+      return;
+    }
+    state.pulseCount += 1;
+    const add = state.mode === 'WEIGHT' ? 0.25 : 0.3;
+    state.grindCurrent = Number((state.grindCurrent + add).toFixed(2));
+    state.grindDeviation = Number((state.grindCurrent - state.grindTarget).toFixed(2));
+    state.chartHistory.push({ w: state.grindCurrent, f: 0.75 });
+    state.chartHistory.push({ w: state.grindCurrent, f: 0.0 });
+    showToast(`Top-up Pulse #${state.pulseCount} (+${add.toFixed(2)}${state.mode === 'WEIGHT' ? 'g' : 's'})`);
+    render();
+  }
+
+  function getPortafilterMoundSurfaceY(progress) {
+    const basketBottomY = 236;
+    const rimY = 206;
+    const fillFrac = Math.min(1, progress / 0.78);
+    const fillY = basketBottomY - fillFrac * (basketBottomY - rimY);
+    const domeHeight = Math.max(0, (progress - 0.30) / 0.70) * 20;
+    return fillY - domeHeight * 0.5;
+  }
+
+  function runGrindLoop() {
+    const step = (now) => {
+      if (state.screen !== 'grinding') return;
+      const dt = Math.min(0.05, (now - state.grindLastTs) / 1000);
+      state.grindLastTs = now;
+      state.tareAngle += dt * 5.2;
+
+      const s = (now - state.grindTimerStart) / 1000;
+      state.grindElapsed = s;
+
+      if (s < 0.95) {
+        state.grindPhase = 'TARING';
+        state.grindCurrent = 0.0;
+        state.grindFlow = 0.0;
+      } else if (s < 4.55) {
+        state.grindPhase = 'GRINDING';
+        const frac = (s - 0.95) / 3.6;
+        state.grindCurrent = Number((state.grindTarget * 0.962 * frac).toFixed(2));
+        state.grindFlow = state.mode === 'WEIGHT' ? Number((1.58 + Math.sin(s * 6) * 0.09).toFixed(2)) : 0;
+      } else if (s < 5.15) {
+        state.grindPhase = 'SETTLING';
+        const frac = (s - 4.55) / 0.6;
+        state.grindCurrent = Number((state.grindTarget * (0.962 + 0.022 * (1 - Math.pow(1 - frac, 2)))).toFixed(2));
+        state.grindFlow = Math.max(0, Number((0.4 * (1 - frac)).toFixed(2)));
+      } else if (s < 5.55) {
+        state.grindPhase = 'PULSE';
+        state.pulseCount = 1;
+        const frac = (s - 5.15) / 0.4;
+        state.grindCurrent = Number((state.grindTarget * (0.984 + 0.017 * frac)).toFixed(2));
+        state.grindFlow = state.mode === 'WEIGHT' ? 0.82 : 0;
+      } else {
+        state.grindPhase = 'COMPLETE';
+        state.grindDeviation = state.mode === 'WEIGHT' ? 0.02 : 0.0;
+        state.grindCurrent = Number((state.grindTarget + state.grindDeviation).toFixed(2));
+        state.grindFlow = 0.0;
+        state.grindMoundVisual = 1.0;
+        state.doneGlow = 1.0;
+        state.particles.forEach(p => { p.active = false; });
+        state.screen = 'complete';
+        render();
+        return;
+      }
+
+      // Record live chart points (~12Hz)
+      if (s >= 0.95 && s - state.lastSampleT >= 0.08) {
+        state.lastSampleT = s;
+        state.chartHistory.push({ w: state.grindCurrent, f: state.grindFlow });
+        if (state.chartHistory.length > 75) state.chartHistory.shift();
+      }
+
+      // Eased coffee mound animation (mirrors commit 4990059!)
+      const targetRatio = Math.min(1, state.grindCurrent / Math.max(0.1, state.grindTarget));
+      state.grindMoundVisual += (targetRatio - state.grindMoundVisual) * 0.22;
+
+      // Update falling coffee ground particles strictly emerging from chute mouth
+      const emitting = (state.grindPhase === 'GRINDING' || state.grindPhase === 'PULSE');
+      const moundSurfaceY = getPortafilterMoundSurfaceY(state.grindMoundVisual);
+      const flowNorm = Math.max(0.4, Math.min(1.4, (state.grindFlow || 1.2) / 1.55));
+      const emitChance = Math.min(0.95, 0.25 + flowNorm * 0.65);
+      const flowSpeedScale = 0.7 + flowNorm * 0.65;
+      const spread = state.grindPhase === 'GRINDING' ? 10 : 7;
+
+      state.particles.forEach(p => {
+        if (!p.active) {
+          if (emitting && Math.random() < emitChance) {
+            resetCoffeeParticle(p, spread, flowSpeedScale);
+          }
+          return;
+        }
+        p.vy += 0.18;
+        p.y += p.vy;
+        p.x += p.vx;
+        if (p.y >= moundSurfaceY) {
+          if (emitting) resetCoffeeParticle(p, spread, flowSpeedScale);
+          else p.active = false;
+        }
+      });
+
+      if (state.grindLayout === 'portafilter') {
+        drawPortafilterCanvas();
+      } else {
+        drawClassicCanvas();
+      }
+      state.grindRaf = requestAnimationFrame(step);
+    };
+    state.grindRaf = requestAnimationFrame(step);
+  }
+
+  // ===== Render AMOLED Screen =====
+  function renderScreen() {
+    // Top bar visibility
+    statusBarEl.style.display = state.screen === 'note' ? 'none' : 'flex';
+    topModePillEl.textContent = state.mode;
+    topModePillEl.style.display = (state.screen === 'ready' && state.readyTabIndex >= 1 && state.readyTabIndex <= 3) ? 'block' : 'none';
+
+    if (state.screen === 'ready') renderReadyScreen();
+    else if (state.screen === 'edit') renderEditScreen();
+    else if (state.screen === 'grinding' || state.screen === 'complete') renderGrindingScreen();
+    else if (state.screen === 'menu') renderMenuScreen();
+    else if (state.screen === 'note') renderNoteScreen();
+  }
+
+  function renderTabDots() {
+    return `<div class="flex items-center justify-center gap-1.5 pt-8 pb-1">
+      ${READY_TABS.map((_, i) => `
+        <span class="rounded-full transition-all ${i === state.readyTabIndex ? 'w-4 h-1.5 bg-[#FF3D00]' : 'w-1.5 h-1.5 bg-white/25'}"></span>
+      `).join('')}
+    </div>`;
+  }
+
+  function renderReadyScreen() {
+    const tab = READY_TABS[state.readyTabIndex];
+    let topHtml = '';
+    let btnHtml = '';
+
+    if (tab === 'manual') {
+      topHtml = `
+        <div class="flex-1 flex flex-col items-center justify-center px-4 gap-2 text-center">
+          <div class="text-[28px] font-bold tracking-wide text-white leading-none">MANUAL</div>
+          <div id="manualWeightLabel" class="text-[52px] font-extrabold tabular-nums text-white leading-tight">${state.manualWeight.toFixed(1)}g</div>
+          <div class="text-[16px] font-semibold tracking-wider text-[#CCCCCC]">LIVE WEIGHT</div>
+          <button id="manualTareBtn" class="mt-1 w-[220px] h-[54px] rounded-xl bg-[#FF3D00] hover:bg-[#ff531a] active:scale-95 text-white text-[22px] font-bold tracking-wide transition">
+            TARE
+          </button>
+          <div class="text-[14px] text-[#999999] mt-1">30 SECOND LIMIT</div>
+        </div>
+      `;
+      const manualLabel = state.manualHoldMode
+        ? (state.manualHolding ? 'GRINDING...' : 'HOLD TO GRIND')
+        : (state.manualHolding ? '■ STOP' : '▶ START');
+      btnHtml = `
+        <button id="bottomActionBtn" class="w-full h-[84px] rounded-2xl ${state.manualHolding ? 'bg-[#FF0000]' : 'bg-[#FF3D00]'} active:scale-[0.98] text-white text-[22px] font-extrabold tracking-wide transition">
+          ${manualLabel}
+        </button>
+      `;
+    } else if (tab === 'single' || tab === 'double' || tab === 'custom') {
+      const prof = currentProfile();
+      topHtml = `
+        <div class="flex-1 flex flex-col items-center justify-center px-4 text-center">
+          <div class="text-[22px] font-bold tracking-[0.14em] text-[#AAAAAA]">${prof.name}</div>
+          <div id="profileWeightTouch" class="relative mt-1 px-4 py-2 rounded-2xl hover:bg-white/5 cursor-pointer group" title="לחיצה ארוכה לעריכת היעד">
+            <div class="text-[64px] font-extrabold tabular-nums text-white leading-none">${formatTarget(prof)}</div>
+            <div class="mt-2 h-1 w-28 mx-auto rounded-full bg-white/10 overflow-hidden">
+              <div id="longPressFill" class="h-full w-0 bg-[#00AAFF] rounded-full"></div>
+            </div>
+            <div class="text-[11px] text-[#888888] mt-1.5">Hold weight to edit · Swipe ⇅ mode</div>
+          </div>
+        </div>
+      `;
+      btnHtml = `
+        <button id="bottomActionBtn" class="w-full h-[84px] rounded-2xl bg-[#FF3D00] hover:bg-[#ff531a] active:scale-[0.98] text-white text-[28px] font-extrabold tracking-wider transition">
+          GRIND
+        </button>
+      `;
+    } else if (tab === 'wifi') {
+      if (!state.wifiSetupMode) {
+        topHtml = `
+          <div class="flex-1 flex flex-col items-center justify-center px-5 text-center gap-2.5">
+            <div class="w-12 h-12 rounded-full bg-[#00AA00]/20 border border-[#00AA00] flex items-center justify-center">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#00AA00" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/>
+              </svg>
+            </div>
+            <div class="text-[20px] font-bold text-white">WI-FI CONNECTED</div>
+            <div class="text-[14px] text-[#CCCCCC] leading-relaxed font-mono">
+              HomeWiFi_2.4G<br/>
+              <span class="text-[#00AAFF]">http://smartgrind.local</span><br/>
+              192.168.1.42
+            </div>
+            <button id="toggleWifiStateBtn" class="mt-2 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-[12px] text-[#CCCCCC]">
+              Simulate Setup AP QR
+            </button>
+          </div>
+        `;
+      } else {
+        topHtml = `
+          <div class="flex-1 flex flex-col items-center justify-center px-4 text-center gap-2">
+            <div class="text-[19px] font-bold text-white">CONNECT WI-FI</div>
+            <!-- Authentic-looking QR block -->
+            <div class="w-[144px] h-[144px] bg-white p-2 rounded-lg grid grid-cols-7 grid-rows-7 gap-0.5">
+              ${Array.from({length: 49}, (_, k) => {
+                const r = Math.floor(k / 7), c = k % 7;
+                const corner = (r < 2 && c < 2) || (r < 2 && c > 4) || (r > 4 && c < 2);
+                const pattern = corner || ((r * 7 + c * 3) % 2 === 0);
+                return `<div style="background:${pattern ? '#000' : '#fff'}"></div>`;
+              }).join('')}
+            </div>
+            <div class="text-[12px] text-[#CCCCCC] leading-snug">
+              Scan with your phone, then use the sign-in page.<br/>
+              <span class="font-mono text-white">SmartGrind-A4F2</span>
+            </div>
+            <button id="toggleWifiStateBtn" class="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-[11px] text-[#CCCCCC]">
+              Back to Connected
+            </button>
+          </div>
+        `;
+      }
+      btnHtml = `
+        <button id="bottomActionBtn" class="w-full h-[84px] rounded-2xl bg-[#333333] hover:bg-[#444444] text-white text-[18px] font-bold tracking-wide transition">
+          WI-FI SETTINGS
+        </button>
+      `;
+    } else if (tab === 'menu_tab') {
+      topHtml = `
+        <div class="flex-1 flex flex-col items-center justify-center px-4 text-center gap-3">
+          <svg width="46" height="46" viewBox="0 0 24 24" fill="none" stroke="#AAAAAA" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.26.6.85 1 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          </svg>
+          <div class="text-[30px] font-bold tracking-wide text-white leading-tight">MAIN<br/>MENU</div>
+        </div>
+      `;
+      btnHtml = `
+        <button id="bottomActionBtn" class="w-full h-[84px] rounded-2xl bg-[#FF3D00] hover:bg-[#ff531a] active:scale-[0.98] text-white text-[24px] font-extrabold tracking-wider transition">
+          OPEN MENU
+        </button>
+      `;
+    }
+
+    screenContentEl.innerHTML = `
+      <div class="w-full h-full flex flex-col justify-between pb-2.5 px-2.5">
+        ${renderTabDots()}
+        ${topHtml}
+        <div class="pt-1">${btnHtml}</div>
+      </div>
+    `;
+
+    // Bind events
+    if (tab === 'manual') {
+      document.getElementById('manualTareBtn').onclick = () => {
+        state.manualWeight = 0.0;
+        showToast('Tared to 0.0g');
+        renderScreen();
+      };
+      const manualBtn = document.getElementById('bottomActionBtn');
+      const startManualMotor = () => {
+        if (state.manualHolding) return;
+        state.manualHolding = true;
+        renderScreen();
+        state.manualInterval = setInterval(() => {
+          state.manualWeight = Number((state.manualWeight + 0.2).toFixed(1));
+          const lbl = document.getElementById('manualWeightLabel');
+          if (lbl) lbl.textContent = `${state.manualWeight.toFixed(1)}g`;
+        }, 120);
+      };
+      const stopManualMotor = () => {
+        if (!state.manualHolding) return;
+        stopGrindSim();
+        renderScreen();
+      };
+      if (state.manualHoldMode) {
+        manualBtn.onpointerdown = (e) => {
+          e.stopPropagation();
+          startManualMotor();
+          window.addEventListener('pointerup', stopManualMotor, { once: true });
+        };
+      } else {
+        manualBtn.onclick = (e) => {
+          e.stopPropagation();
+          if (state.manualHolding) stopManualMotor();
+          else startManualMotor();
+        };
+      }
+    } else if (tab === 'single' || tab === 'double' || tab === 'custom') {
+      const weightBox = document.getElementById('profileWeightTouch');
+      const fill = document.getElementById('longPressFill');
+      let pressTimer = null;
+      weightBox.onpointerdown = (e) => {
+        fill.classList.add('long-press-bar');
+        fill.style.width = '100%';
+        pressTimer = setTimeout(() => {
+          openEdit();
+        }, 550);
+      };
+      const cancelPress = () => {
+        clearTimeout(pressTimer);
+        if (fill) {
+          fill.classList.remove('long-press-bar');
+          fill.style.width = '0%';
+        }
+      };
+      weightBox.onpointerup = cancelPress;
+      weightBox.onpointerleave = cancelPress;
+      weightBox.ondblclick = () => openEdit();
+      document.getElementById('bottomActionBtn').onclick = () => startGrindSim();
+    } else if (tab === 'wifi') {
+      document.getElementById('toggleWifiStateBtn').onclick = (e) => {
+        e.stopPropagation();
+        state.wifiSetupMode = !state.wifiSetupMode;
+        renderScreen();
+      };
+      document.getElementById('bottomActionBtn').onclick = () => {
+        state.screen = 'menu';
+        state.menuSubPage = 'wifi';
+        render();
+      };
+    } else if (tab === 'menu_tab') {
+      document.getElementById('bottomActionBtn').onclick = () => {
+        state.screen = 'menu';
+        state.menuSubPage = 'main';
+        render();
+      };
+    }
+  }
+
+  function renderEditScreen() {
+    const prof = currentProfile();
+    const unit = state.mode === 'WEIGHT' ? 'g' : 's';
+    const step = 0.1;
+
+    screenContentEl.innerHTML = `
+      <div class="w-full h-full flex flex-col justify-between px-2.5 pt-9 pb-2.5">
+        <!-- Top Save / Cancel Row -->
+        <div class="grid grid-cols-2 gap-2">
+          <button id="editSaveBtn" class="h-[72px] rounded-xl bg-[#00AA00] hover:bg-[#00c200] active:scale-95 text-white text-[28px] font-bold transition">✓</button>
+          <button id="editCancelBtn" class="h-[72px] rounded-xl bg-[#666666] hover:bg-[#777777] active:scale-95 text-white text-[26px] font-bold transition">✕</button>
+        </div>
+
+        <!-- Center Profile & Editable Target -->
+        <div class="flex flex-col items-center justify-center text-center">
+          <div class="text-[20px] font-bold tracking-[0.14em] text-[#AAAAAA]">${prof.name}</div>
+          <div id="editValLabel" class="text-[62px] font-extrabold tabular-nums text-white leading-tight mt-1">${state.editDraftValue.toFixed(1)}${unit}</div>
+          <div class="text-[12px] text-[#00AAFF] font-medium mt-1">EDITING ${state.mode} TARGET</div>
+        </div>
+
+        <!-- Bottom Minus / Plus Row -->
+        <div class="grid grid-cols-2 gap-2">
+          <button id="editMinusBtn" class="h-[92px] rounded-xl bg-[#FF3D00] hover:bg-[#ff531a] active:scale-95 text-white text-[36px] font-bold transition">−</button>
+          <button id="editPlusBtn" class="h-[92px] rounded-xl bg-[#FF3D00] hover:bg-[#ff531a] active:scale-95 text-white text-[36px] font-bold transition">+</button>
+        </div>
+      </div>
+    `;
+
+    document.getElementById('editMinusBtn').onclick = () => {
+      state.editDraftValue = Math.max(1.0, Number((state.editDraftValue - step).toFixed(1)));
+      document.getElementById('editValLabel').textContent = `${state.editDraftValue.toFixed(1)}${unit}`;
+    };
+    document.getElementById('editPlusBtn').onclick = () => {
+      state.editDraftValue = Math.min(99.9, Number((state.editDraftValue + step).toFixed(1)));
+      document.getElementById('editValLabel').textContent = `${state.editDraftValue.toFixed(1)}${unit}`;
+    };
+    document.getElementById('editSaveBtn').onclick = () => {
+      if (state.mode === 'WEIGHT') prof.weight = state.editDraftValue;
+      else prof.time = state.editDraftValue;
+      state.screen = 'ready';
+      showToast(`Saved ${prof.name}: ${state.editDraftValue.toFixed(1)}${unit}`);
+      render();
+    };
+    document.getElementById('editCancelBtn').onclick = () => {
+      state.screen = 'ready';
+      showToast('Edit cancelled');
+      render();
+    };
+  }
+
+  function renderGrindingScreen() {
+    const isComplete = state.screen === 'complete';
+    const canPulse = isComplete && (state.mode === 'TIME' || state.cupPresent);
+
+    let bottomBtns = '';
+    if (!isComplete) {
+      bottomBtns = `
+        <button id="grindStopBtn" class="w-full h-[74px] rounded-2xl bg-[#FF0000] hover:bg-[#ff2626] active:scale-[0.98] text-white text-[24px] font-extrabold tracking-wider transition">
+          STOP
+        </button>
+      `;
+    } else if (canPulse) {
+      bottomBtns = `
+        <div class="grid grid-cols-[1fr_80px] gap-2">
+          <button id="grindOkBtn" class="h-[74px] rounded-2xl bg-[#00AA00] hover:bg-[#00c200] active:scale-[0.98] text-white text-[24px] font-extrabold tracking-wider transition">
+            OK
+          </button>
+          <button id="grindPulseBtn" class="h-[74px] rounded-2xl bg-[#00AAFF] hover:bg-[#2bb8ff] active:scale-95 text-white text-[34px] font-extrabold transition" title="Top-up Pulse">
+            +
+          </button>
+        </div>
+      `;
+    } else {
+      bottomBtns = `
+        <button id="grindOkBtn" class="w-full h-[74px] rounded-2xl bg-[#00AA00] hover:bg-[#00c200] active:scale-[0.98] text-white text-[24px] font-extrabold tracking-wider transition">
+          OK
+        </button>
+      `;
+    }
+
+    screenContentEl.innerHTML = `
+      <div class="w-full h-full flex flex-col justify-between bg-black">
+        <canvas id="grindCanvas" width="280" height="368" class="w-[280px] h-[368px] block"></canvas>
+        <div class="px-2.5 pb-2.5">${bottomBtns}</div>
+      </div>
+    `;
+
+    if (state.grindLayout === 'portafilter') drawPortafilterCanvas();
+    else drawClassicCanvas();
+
+    if (!isComplete) {
+      document.getElementById('grindStopBtn').onclick = () => {
+        stopGrindSim();
+        state.screen = 'ready';
+        showToast('Grind stopped');
+        render();
+      };
+    } else {
+      document.getElementById('grindOkBtn').onclick = () => {
+        stopGrindSim();
+        state.screen = 'ready';
+        showToast('Returned to READY');
+        render();
+      };
+      const pulseBtn = document.getElementById('grindPulseBtn');
+      if (pulseBtn) pulseBtn.onclick = () => triggerTopUpPulse();
+    }
+  }
+
+  function drawPortafilterCanvas() {
+    const canvas = document.getElementById('grindCanvas');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+    const CX = 140;
+
+    // Pure AMOLED true black
+    ctx.fillStyle = '#000000';
+    ctx.fillRect(0, 0, W, H);
+
+    const progress = Math.max(0, Math.min(1, state.grindMoundVisual));
+    const isDone = state.grindPhase === 'COMPLETE';
+    const isTaring = state.grindPhase === 'TARING';
+    const isActiveFlow = (state.grindPhase === 'GRINDING' || state.grindPhase === 'PULSE');
+    const unit = state.mode === 'WEIGHT' ? 'g' : 's';
+    const prof = currentProfile();
+
+    // --- TOP HEADER (matches grinding_screen_portafilter.cpp & 7eeb37a) ---
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#D4D4D4';
+    ctx.font = '700 21px system-ui, -apple-system, sans-serif';
+    ctx.fillText(prof.name, CX, 36);
+
+    ctx.font = '500 13px system-ui, -apple-system, sans-serif';
+    if (isDone && state.mode === 'WEIGHT') {
+      const sign = state.grindDeviation >= 0 ? '+' : '';
+      const devStr = `${sign}${state.grindDeviation.toFixed(2)}g`;
+      ctx.fillStyle = '#888888';
+      ctx.fillText(`Target: ${state.grindTarget.toFixed(1)}g`, CX - 26, 54);
+      ctx.fillStyle = Math.abs(state.grindDeviation) <= 0.15 ? '#00E676' : '#FFB300';
+      ctx.font = '700 13px system-ui, -apple-system, sans-serif';
+      ctx.fillText(devStr, CX + 52, 54);
+    } else {
+      ctx.fillStyle = '#888888';
+      ctx.fillText(`Target: ${state.grindTarget.toFixed(1)}${unit}`, CX, 54);
+    }
+
+    // Phase Status Pill
+    let pillText = state.grindPhase;
+    let pillColor = '#FF5722';
+    if (state.grindPhase === 'TARING') { pillText = 'TARING...'; pillColor = '#00AAFF'; }
+    else if (state.grindPhase === 'GRINDING') { pillText = 'GRINDING'; pillColor = '#FF3D00'; }
+    else if (state.grindPhase === 'SETTLING') { pillText = 'SETTLING'; pillColor = '#CC8800'; }
+    else if (state.grindPhase === 'PULSE') { pillText = `PULSE #${Math.max(1, state.pulseCount)}`; pillColor = '#FF9800'; }
+    else if (state.grindPhase === 'COMPLETE') { pillText = 'READY'; pillColor = '#00C853'; }
+
+    roundRect(ctx, CX - 52, 62, 104, 21, 10.5);
+    ctx.fillStyle = 'rgba(255,255,255,0.08)';
+    ctx.fill();
+    ctx.strokeStyle = pillColor;
+    ctx.lineWidth = 1.4;
+    ctx.stroke();
+
+    ctx.fillStyle = pillColor;
+    ctx.font = '700 10.5px system-ui, -apple-system, sans-serif';
+    ctx.fillText(pillText, CX, 76);
+
+    // --- EUREKA CHUTE NOZZLE (dead-center at CX=140) ---
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(CX - 18, 92);
+    ctx.lineTo(CX + 18, 92);
+    ctx.lineTo(CX + 12, 113);
+    ctx.lineTo(CX - 12, 113);
+    ctx.closePath();
+    const chuteGrad = ctx.createLinearGradient(CX - 18, 92, CX + 18, 92);
+    chuteGrad.addColorStop(0, '#30343A');
+    chuteGrad.addColorStop(0.45, '#767D87');
+    chuteGrad.addColorStop(1, '#262A30');
+    ctx.fillStyle = chuteGrad;
+    ctx.fill();
+    ctx.strokeStyle = '#9AA3AE';
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+
+    // Chute opening shadow
+    ctx.fillStyle = '#120B07';
+    roundRect(ctx, CX - 9, 110, 18, 4, 2);
+    ctx.fill();
+    ctx.restore();
+
+    // --- COFFEE GROUNDS STREAM (strictly aligned with chute mouth) ---
+    if (isActiveFlow) {
+      const streamAlpha = state.grindPhase === 'GRINDING' ? 0.30 : 0.18;
+      const mY = getPortafilterMoundSurfaceY(progress);
+      const sGrad = ctx.createLinearGradient(CX, 113, CX, mY);
+      sGrad.addColorStop(0, `rgba(148, 92, 48, ${streamAlpha})`);
+      sGrad.addColorStop(1, `rgba(104, 58, 26, ${streamAlpha * 0.45})`);
+      ctx.fillStyle = sGrad;
+      ctx.beginPath();
+      ctx.moveTo(CX - 5, 113);
+      ctx.lineTo(CX + 5, 113);
+      ctx.lineTo(CX + 9, mY);
+      ctx.lineTo(CX - 9, mY);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    // Falling crisp ground particles (pure LVGL rectangles)
+    state.particles.forEach(p => {
+      if (!p.active) return;
+      ctx.fillStyle = p.color;
+      ctx.fillRect(Math.round(p.x), Math.round(p.y), p.size, p.size + 1);
+    });
+
+    // Sleek 58mm basket geometry dead-center at CX=140 (60px wide x 30px tall)
+    const rimY = 206;
+    const basketBottomY = 236;
+    const topHalfW = 30; // 110 .. 170 (60px)
+    const botHalfW = 24; // 116 .. 164 (48px)
+
+    // --- GROWING COFFEE MOUND (strictly inside basket walls & neatly crowning inner rim) ---
+    if (progress > 0.01) {
+      const fillFrac = Math.min(1, progress / 0.78);
+      const fillY = basketBottomY - fillFrac * (basketBottomY - rimY);
+      const domeHeight = Math.max(0, (progress - 0.30) / 0.70) * 20;
+      const peakY = fillY - domeHeight;
+
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(CX - topHalfW + 2, 148);
+      ctx.lineTo(CX + topHalfW - 2, 148);
+      ctx.lineTo(CX + topHalfW - 2, rimY);
+      ctx.lineTo(CX + botHalfW - 2, basketBottomY - 4);
+      ctx.quadraticCurveTo(CX + botHalfW - 3, basketBottomY, CX + botHalfW - 7, basketBottomY);
+      ctx.lineTo(CX - botHalfW + 7, basketBottomY);
+      ctx.quadraticCurveTo(CX - botHalfW + 3, basketBottomY, CX - botHalfW + 2, basketBottomY - 4);
+      ctx.lineTo(CX - topHalfW + 2, rimY);
+      ctx.closePath();
+      ctx.clip();
+
+      const moundGrad = ctx.createLinearGradient(CX, peakY, CX, basketBottomY);
+      moundGrad.addColorStop(0, '#BC7E4A');
+      moundGrad.addColorStop(0.38, '#8A5229');
+      moundGrad.addColorStop(1, '#4A2610');
+
+      ctx.beginPath();
+      ctx.moveTo(CX - topHalfW, basketBottomY + 2);
+      ctx.lineTo(CX - topHalfW, fillY);
+      ctx.quadraticCurveTo(CX, peakY - 9, CX + topHalfW, fillY);
+      ctx.lineTo(CX + topHalfW, basketBottomY + 2);
+      ctx.closePath();
+      ctx.fillStyle = moundGrad;
+      ctx.fill();
+
+      // Subtle texture speckles strictly inside mound
+      ctx.fillStyle = 'rgba(225, 170, 115, 0.25)';
+      for (let i = 0; i < 10; i++) {
+        const sx = (CX - 20) + ((i * 17) % 40);
+        const sy = peakY + 8 + ((i * 11) % Math.max(8, Math.round(basketBottomY - peakY - 12)));
+        if (sy < basketBottomY - 3) {
+          ctx.fillRect(sx, sy, 2, 2);
+        }
+      }
+      ctx.restore();
+    }
+
+    // --- AUTHENTIC ITALIAN E61 ESPRESSO PORTAFILTER ---
+    ctx.save();
+
+    // 1. Sleek Ergonomic Walnut-Wood Portafilter Handle (~88px long, 3.2 deg tilt)
+    ctx.save();
+    ctx.translate(CX + topHalfW - 1, rimY + 9);
+    ctx.rotate(0.055);
+
+    // Polished chrome neck stem
+    const neckGrad = ctx.createLinearGradient(0, -5.5, 0, 5.5);
+    neckGrad.addColorStop(0, '#E8EEF5');
+    neckGrad.addColorStop(0.45, '#9DA6B2');
+    neckGrad.addColorStop(1, '#4C525C');
+    ctx.beginPath();
+    ctx.moveTo(-2, -5.8);
+    ctx.lineTo(13, -4);
+    ctx.lineTo(13, 4);
+    ctx.lineTo(-2, 5.8);
+    ctx.closePath();
+    ctx.fillStyle = neckGrad;
+    ctx.fill();
+
+    // Chrome ferrule ring (collar)
+    roundRect(ctx, 12, -6, 6, 12, 2);
+    ctx.fillStyle = '#D2DAE4';
+    ctx.fill();
+    ctx.strokeStyle = '#6A727E';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // Sculpted tapered Italian walnut-wood ergonomic handle
+    const woodGrad = ctx.createLinearGradient(18, -10, 18, 10);
+    woodGrad.addColorStop(0, '#7A4A28');
+    woodGrad.addColorStop(0.28, '#5E341A');
+    woodGrad.addColorStop(0.68, '#3B1E0E');
+    woodGrad.addColorStop(1, '#231007');
+    ctx.beginPath();
+    ctx.moveTo(18, -5);
+    ctx.bezierCurveTo(38, -6, 62, -9.5, 81, -8.8);
+    ctx.quadraticCurveTo(89, -8.2, 89, 0);
+    ctx.quadraticCurveTo(89, 8.2, 81, 8.8);
+    ctx.bezierCurveTo(62, 9.5, 38, 6, 18, 5);
+    ctx.closePath();
+    ctx.fillStyle = woodGrad;
+    ctx.fill();
+    ctx.strokeStyle = '#8F5B36';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // Subtle glossy wood highlight along top curve
+    ctx.beginPath();
+    ctx.moveTo(22, -3);
+    ctx.bezierCurveTo(42, -4.5, 63, -6.8, 79, -6.2);
+    ctx.strokeStyle = 'rgba(235, 190, 145, 0.30)';
+    ctx.lineWidth = 1.3;
+    ctx.stroke();
+
+    // Polished chrome end-cap (pommel)
+    ctx.beginPath();
+    ctx.arc(84, 0, 8, -Math.PI * 0.42, Math.PI * 0.42);
+    ctx.lineTo(84, 0);
+    ctx.closePath();
+    const capGrad = ctx.createLinearGradient(83, -7.5, 83, 7.5);
+    capGrad.addColorStop(0, '#EFF3F8');
+    capGrad.addColorStop(0.5, '#9BA4B0');
+    capGrad.addColorStop(1, '#4C525C');
+    ctx.fillStyle = capGrad;
+    ctx.fill();
+    ctx.restore();
+
+    // 2. Classic Dual Espresso Spouts underneath the head
+    const spoutGrad = ctx.createLinearGradient(CX - 15, basketBottomY + 1, CX + 15, basketBottomY + 16);
+    spoutGrad.addColorStop(0, '#B8C0CB');
+    spoutGrad.addColorStop(0.5, '#6C737E');
+    spoutGrad.addColorStop(1, '#434850');
+    ctx.fillStyle = spoutGrad;
+    roundRect(ctx, CX - 7, basketBottomY + 1, 14, 7, 2.5);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(CX - 6, basketBottomY + 5);
+    ctx.quadraticCurveTo(CX - 15, basketBottomY + 5, CX - 16, basketBottomY + 14);
+    ctx.lineTo(CX - 11, basketBottomY + 15);
+    ctx.quadraticCurveTo(CX - 10, basketBottomY + 9.5, CX - 4, basketBottomY + 9.5);
+    ctx.lineTo(CX + 4, basketBottomY + 9.5);
+    ctx.quadraticCurveTo(CX + 10, basketBottomY + 9.5, CX + 11, basketBottomY + 15);
+    ctx.lineTo(CX + 16, basketBottomY + 14);
+    ctx.quadraticCurveTo(CX + 15, basketBottomY + 5, CX + 6, basketBottomY + 5);
+    ctx.closePath();
+    ctx.fill();
+
+    // 3. Portafilter Head / Cutaway Stainless Basket Shell
+    ctx.beginPath();
+    ctx.moveTo(CX - topHalfW, rimY);
+    ctx.lineTo(CX - botHalfW, basketBottomY - 4);
+    ctx.quadraticCurveTo(CX - botHalfW + 2, basketBottomY + 1.5, CX - botHalfW + 7, basketBottomY + 1.5);
+    ctx.lineTo(CX + botHalfW - 7, basketBottomY + 1.5);
+    ctx.quadraticCurveTo(CX + botHalfW - 2, basketBottomY + 1.5, CX + botHalfW, basketBottomY - 4);
+    ctx.lineTo(CX + topHalfW, rimY);
+    ctx.strokeStyle = isDone ? '#00C853' : '#C5CCD6';
+    ctx.lineWidth = 2.6;
+    ctx.stroke();
+
+    // 4. Bayonet Locking Ears on left & right of rim
+    ctx.fillStyle = '#9BA4B0';
+    roundRect(ctx, CX - topHalfW - 8, rimY - 1, 7.5, 4.5, 1.8);
+    ctx.fill();
+    roundRect(ctx, CX + topHalfW + 0.5, rimY - 1, 7.5, 4.5, 1.8);
+    ctx.fill();
+
+    // 5. Brushed Stainless Top Flange Rim
+    const rimGrad = ctx.createLinearGradient(CX - topHalfW - 2.5, rimY, CX + topHalfW + 2.5, rimY);
+    rimGrad.addColorStop(0, '#6B727D');
+    rimGrad.addColorStop(0.32, '#EDF1F7');
+    rimGrad.addColorStop(0.68, '#9EA7B3');
+    rimGrad.addColorStop(1, '#585F69');
+    roundRect(ctx, CX - topHalfW - 2.5, rimY - 3, (topHalfW + 2.5) * 2, 6, 3);
+    ctx.fillStyle = rimGrad;
+    ctx.fill();
+    ctx.restore();
+
+    // Taring spinner inside basket
+    if (isTaring) {
+      ctx.save();
+      ctx.translate(CX, rimY + 15);
+      ctx.rotate(state.tareAngle);
+      ctx.beginPath();
+      ctx.arc(0, 0, 9, 0, Math.PI * 1.4);
+      ctx.strokeStyle = '#00AAFF';
+      ctx.lineWidth = 2.6;
+      ctx.lineCap = 'round';
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // --- CENTERED LARGE LIVE WEIGHT READOUT ---
+    ctx.textAlign = 'center';
+    ctx.fillStyle = isDone ? '#00E676' : '#FFFFFF';
+    ctx.font = '800 36px system-ui, -apple-system, sans-serif';
+    ctx.fillText(isTaring ? '---' : `${state.grindCurrent.toFixed(1)}${unit}`, CX, 290);
+
+    // --- LIVE DUAL-CURVE MINI-CHART (Weight + Flow g/s) ---
+    const mx = 20, my = 302, mw = 240, mh = 58;
+    ctx.save();
+    roundRect(ctx, mx, my, mw, mh, 8);
+    ctx.fillStyle = '#0D1014';
+    ctx.fill();
+    ctx.strokeStyle = '#242930';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // Target weight dashed line near top
+    const targetY = my + 10;
+    ctx.beginPath();
+    ctx.setLineDash([3, 3]);
+    ctx.moveTo(mx + 6, targetY);
+    ctx.lineTo(mx + mw - 6, targetY);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.22)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Inline legend
+    ctx.font = '600 9.5px system-ui, -apple-system, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = isDone ? '#00E676' : '#FF5722';
+    ctx.fillText(`● ${unit}`, mx + 7, my + 12);
+    ctx.fillStyle = '#00AAFF';
+    ctx.fillText(`● ${state.grindFlow.toFixed(1)} g/s`, mx + 32, my + 12);
+
+    const series = state.chartHistory;
+    if (series.length >= 2) {
+      const maxSlots = Math.max(54, series.length);
+      const plotL = mx + 6;
+      const plotW = mw - 12;
+      const plotB = my + mh - 5;
+      const plotH = mh - 16;
+
+      // 1. Flow rate curve (Cyan)
+      ctx.beginPath();
+      series.forEach((pt, idx) => {
+        const px = plotL + (idx / (maxSlots - 1)) * plotW;
+        const py = plotB - Math.min(1, pt.f / 2.2) * plotH;
+        if (idx === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      });
+      ctx.strokeStyle = 'rgba(0, 170, 255, 0.78)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      // 2. Weight curve (Orange -> Green on done) with soft area fill
+      ctx.beginPath();
+      series.forEach((pt, idx) => {
+        const px = plotL + (idx / (maxSlots - 1)) * plotW;
+        const py = plotB - Math.min(1, pt.w / Math.max(0.1, state.grindTarget)) * plotH;
+        if (idx === 0) ctx.moveTo(px, py);
+        else ctx.lineTo(px, py);
+      });
+      ctx.strokeStyle = isDone ? '#00E676' : '#FF3D00';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      const lastX = plotL + ((series.length - 1) / (maxSlots - 1)) * plotW;
+      ctx.lineTo(lastX, plotB);
+      ctx.lineTo(plotL, plotB);
+      ctx.closePath();
+      const fillGrad = ctx.createLinearGradient(0, my + 10, 0, plotB);
+      fillGrad.addColorStop(0, isDone ? 'rgba(0, 230, 118, 0.24)' : 'rgba(255, 61, 0, 0.24)');
+      fillGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+      ctx.fillStyle = fillGrad;
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function drawClassicCanvas() {
+    const canvas = document.getElementById('grindCanvas');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = canvas.height;
+    ctx.clearRect(0, 0, W, H);
+
+    const cx = W / 2, cy = 166, r = 104;
+    const ratio = Math.max(0, Math.min(1, state.grindCurrent / Math.max(0.1, state.grindTarget)));
+    const isComplete = state.grindPhase === 'COMPLETE';
+    const unit = state.mode === 'WEIGHT' ? 'g' : 's';
+
+    // Track arc
+    ctx.strokeStyle = '#27272A';
+    ctx.lineWidth = 14;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, Math.PI * 0.75, Math.PI * 2.25);
+    ctx.stroke();
+
+    // Active progress arc
+    ctx.strokeStyle = isComplete ? '#00AA00' : '#FF3D00';
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, Math.PI * 0.75, Math.PI * 0.75 + Math.PI * 1.5 * ratio);
+    ctx.stroke();
+
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#AAAAAA';
+    ctx.font = '700 14px system-ui, sans-serif';
+    ctx.fillText(currentProfile().name, cx, cy - 36);
+
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = '800 48px system-ui, sans-serif';
+    ctx.fillText(`${state.grindCurrent.toFixed(1)}${unit}`, cx, cy + 12);
+
+    ctx.fillStyle = isComplete ? '#22C55E' : '#00AAFF';
+    ctx.font = '700 13px system-ui, sans-serif';
+    ctx.fillText(state.grindPhase, cx, cy + 44);
+
+    ctx.fillStyle = '#9CA3AF';
+    ctx.font = '600 13px system-ui, sans-serif';
+    ctx.fillText(`Target: ${state.grindTarget.toFixed(1)}${unit}`, cx, 304);
+  }
+
+  function roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
+  function renderMenuScreen() {
+    const sub = state.menuSubPage;
+    let title = 'SETTINGS';
+    let bodyHtml = '';
+
+    if (sub === 'main') {
+      const items = [
+        { id: 'scale', label: 'Scale & Tare', sub: '0.0g · HX711 10 SPS' },
+        { id: 'display', label: 'Display', sub: state.grindLayout === 'portafilter' ? 'Portafilter Screen' : 'Classic Arc' },
+        { id: 'grind', label: 'Grind Settings', sub: 'Adaptive Coast · Swipe' },
+        { id: 'wifi', label: 'Wi-Fi & Studio', sub: '192.168.1.42 · Connected' },
+        { id: 'calibrate', label: 'Calibrate', sub: '100g reference weight' },
+        { id: 'autotune', label: 'Tune Pulses', sub: 'Motor latency auto-tune' },
+        { id: 'motor', label: 'Motor Test', sub: 'Manual relay check' },
+        { id: 'info', label: 'System Info', sub: 'V1/V2 · Flash 90%' }
+      ];
+      bodyHtml = items.map(it => `
+        <button data-menu="${it.id}" class="w-full text-left px-3 py-2.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.13] border border-white/10 flex items-center justify-between transition">
+          <div>
+            <div class="text-[14px] font-bold text-white leading-tight">${it.label}</div>
+            <div class="text-[11px] text-[#AAAAAA] mt-0.5">${it.sub}</div>
+          </div>
+          <span class="text-[#888888] text-[16px]">›</span>
+        </button>
+      `).join('');
+    } else if (sub === 'display') {
+      title = 'DISPLAY';
+      bodyHtml = `
+        <div class="space-y-2.5 text-left">
+          <div class="p-3 rounded-xl bg-white/[0.06] border border-white/10 space-y-2">
+            <div class="text-[13px] font-bold text-white">Grinding Screen Style</div>
+            <div class="grid grid-cols-2 gap-1.5">
+              <button id="menuLayoutPf" class="py-2 rounded-lg text-[12px] font-bold ${state.grindLayout === 'portafilter' ? 'bg-[#FF3D00] text-white' : 'bg-[#333333] text-[#CCCCCC]'}">Portafilter</button>
+              <button id="menuLayoutCl" class="py-2 rounded-lg text-[12px] font-bold ${state.grindLayout === 'classic' ? 'bg-[#FF3D00] text-white' : 'bg-[#333333] text-[#CCCCCC]'}">Classic Arc</button>
+            </div>
+          </div>
+          <div class="p-3 rounded-xl bg-white/[0.06] border border-white/10">
+            <div class="flex justify-between text-[12px] text-[#CCCCCC]"><span>Brightness</span><span>85%</span></div>
+            <div class="mt-2 h-2 rounded-full bg-white/15"><div class="h-full w-[85%] rounded-full bg-[#FF3D00]"></div></div>
+          </div>
+          <div class="p-3 rounded-xl bg-white/[0.06] border border-white/10 flex items-center justify-between">
+            <span class="text-[12px] text-white font-semibold">AMOLED Panel Sleep</span>
+            <span class="px-2 py-0.5 rounded-full bg-[#00AA00] text-white text-[11px] font-bold">ON</span>
+          </div>
+        </div>
+      `;
+    } else if (sub === 'grind') {
+      title = 'GRIND SETTINGS';
+      bodyHtml = `
+        <div class="space-y-2 text-left text-[12px]">
+          <div class="p-2.5 rounded-xl bg-white/[0.06] border border-white/10 flex justify-between items-center">
+            <span class="text-white font-semibold">Vertical Swipe Mode</span>
+            <span class="px-2 py-0.5 rounded-full bg-[#00AA00] text-white font-bold">ON</span>
+          </div>
+          <button id="menuManualHoldToggle" class="w-full p-2.5 rounded-xl bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 flex justify-between items-center transition">
+            <span class="text-white font-semibold">Manual Hold Mode</span>
+            <span class="px-2 py-0.5 rounded-full ${state.manualHoldMode ? 'bg-[#00AA00]' : 'bg-[#555555]'} text-white font-bold">${state.manualHoldMode ? 'HOLD' : 'START/STOP'}</span>
+          </button>
+          <div class="p-2.5 rounded-xl bg-white/[0.06] border border-white/10 flex justify-between items-center">
+            <span class="text-white font-semibold">Adaptive Zero-Shot</span>
+            <span class="px-2 py-0.5 rounded-full bg-[#00AA00] text-white font-bold">ON</span>
+          </div>
+          <div class="p-2.5 rounded-xl bg-white/[0.06] border border-white/10 flex justify-between items-center">
+            <span class="text-white font-semibold">Auto-Return Idle</span>
+            <span class="px-2 py-0.5 rounded-full bg-[#00AA00] text-white font-bold">5s</span>
+          </div>
+          <div class="p-2.5 rounded-xl bg-white/[0.06] border border-white/10">
+            <div class="text-[#AAAAAA]">Learned Coast Time</div>
+            <div class="text-white font-mono text-[15px] font-bold mt-0.5">265 ms (8 shots)</div>
+          </div>
+        </div>
+      `;
+    } else if (sub === 'wifi') {
+      title = 'WI-FI';
+      bodyHtml = `
+        <div class="space-y-2.5 text-left text-[12px]">
+          <div class="p-3 rounded-xl bg-[#00AA00]/15 border border-[#00AA00]/50">
+            <div class="font-bold text-[#4ADE80]">Connected</div>
+            <div class="text-white font-mono mt-1">HomeWiFi_2.4G</div>
+            <div class="text-[#CCCCCC] font-mono">192.168.1.42</div>
+            <div class="text-[#00AAFF] font-mono">smartgrind.local</div>
+          </div>
+          <div class="p-3 rounded-xl bg-white/[0.06] border border-white/10 text-[#CCCCCC]">
+            Web Studio, Home Assistant API & Morning Notes active.
+          </div>
+        </div>
+      `;
+    } else {
+      title = sub.toUpperCase();
+      bodyHtml = `
+        <div class="p-3 rounded-xl bg-white/[0.06] border border-white/10 text-left text-[12px] text-[#CCCCCC] space-y-2">
+          <div class="text-white font-bold">Hardware Utility: ${sub}</div>
+          <p>Runs directly on the ESP32-S3 touchscreen whenever the grinder is idle (blocked only while actively grinding or during OTA).</p>
+        </div>
+      `;
+    }
+
+    screenContentEl.innerHTML = `
+      <div class="w-full h-full flex flex-col pt-8 pb-2.5 px-2.5">
+        <div class="flex items-center justify-between pb-2 mb-2 border-b border-white/15">
+          <button id="menuBackBtn" class="px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-white text-[13px] font-bold">
+            ‹ Back
+          </button>
+          <span class="text-[14px] font-extrabold tracking-wider text-white">${title}</span>
+          <span class="w-12"></span>
+        </div>
+        <div class="flex-1 overflow-y-auto space-y-1.5 pr-0.5">${bodyHtml}</div>
+      </div>
+    `;
+
+    document.getElementById('menuBackBtn').onclick = () => {
+      if (state.menuSubPage !== 'main') {
+        state.menuSubPage = 'main';
+      } else {
+        state.screen = 'ready';
+        state.readyTabIndex = 5;
+      }
+      render();
+    };
+
+    screenContentEl.querySelectorAll('[data-menu]').forEach(btn => {
+      btn.onclick = () => {
+        state.menuSubPage = btn.getAttribute('data-menu');
+        render();
+      };
+    });
+
+    const pfBtn = document.getElementById('menuLayoutPf');
+    const clBtn = document.getElementById('menuLayoutCl');
+    if (pfBtn) pfBtn.onclick = () => { state.grindLayout = 'portafilter'; showToast('Portafilter Screen ON'); render(); };
+    if (clBtn) clBtn.onclick = () => { state.grindLayout = 'classic'; showToast('Classic Arc ON'); render(); };
+    const mhBtn = document.getElementById('menuManualHoldToggle');
+    if (mhBtn) mhBtn.onclick = () => {
+      state.manualHoldMode = !state.manualHoldMode;
+      showToast(state.manualHoldMode ? 'Manual: Hold to Grind' : 'Manual: Start/Stop');
+      render();
+    };
+  }
+
+  function renderNoteScreen() {
+    screenContentEl.innerHTML = `
+      <div id="noteOverlay" class="w-full h-full bg-black flex flex-col items-center justify-between p-5 cursor-pointer text-center relative">
+        <div class="text-[11px] tracking-[0.2em] uppercase text-[#D97706] font-semibold mt-4">MORNING NOTE · 07:15</div>
+
+        <div class="space-y-4 my-auto">
+          <div class="text-[48px] leading-none">☕💛</div>
+          <div class="text-[28px] font-extrabold text-[#FEF3C7] leading-snug" dir="rtl">
+            בוקר טוב אהוב!<br/>שיהיה יום מושלם
+          </div>
+          <svg class="mx-auto" width="140" height="24" viewBox="0 0 140 24" fill="none">
+            <path d="M10 14 Q45 2 70 14 T130 12" stroke="#F59E0B" stroke-width="2.5" stroke-linecap="round"/>
+          </svg>
+          <div class="text-[13px] text-[#A1A1AA]">Double Espresso · 18.0g ready</div>
+        </div>
+
+        <div class="space-y-1 mb-2">
+          <div class="text-[11px] text-[#71717A]">Tap anywhere to dismiss</div>
+          <div class="text-[10px] text-[#52525B]">AMOLED burn-in shift ±3px · 6h cap</div>
+        </div>
+      </div>
+    `;
+    document.getElementById('noteOverlay').onclick = () => {
+      state.screen = 'ready';
+      state.readyTabIndex = 2;
+      showToast('Note dismissed → READY');
+      render();
+    };
+  }
+
+  // ===== Guide Content Dictionary (Hebrew) =====
+  function getGuideInfo() {
+    const k = activeKey();
+    const map = {
+      'ready:double': {
+        cat: 'קרוסלת הבית · טאב 3 מתוך 6',
+        title: 'מסך הבית הראשי — Double (18.0g)',
+        badge: 'UIState::READY · Tab 2',
+        desc: 'זהו מסך ברירת המחדל שהמטחנה עולה אליו בכל בוקר. בחלק העליון מוצגים אייקוני Wi-Fi/BLE ומצב המטחנה, במרכז שם הפרופיל ומשקל היעד בגופן גדול, ולמטה כפתור GRIND גדול ללחיצה אחת.',
+        tip: 'שינוי משקל הפרופיל מהטלפון (Smart Grind Studio) מתעדכן מיד על המסך הזה — וגם להפך.',
+        actions: [
+          { label: 'לחיצה על GRIND', sub: 'מתחיל טחינה אוטומטית עד 18.0g', fn: () => startGrindSim() },
+          { label: 'לחיצה ארוכה על 18.0g', sub: 'פותח מסך עריכת יעד (+/-)', fn: () => openEdit() },
+          { label: 'החלקה ימינה / שמאלה', sub: 'מעבר ל-Single או Custom', fn: () => goReadyTab(1, '← Single') },
+          { label: 'החלקה למעלה / למטה', sub: 'מחליף בין משקל (g) לזמן (s)', fn: () => toggleMode() }
+        ]
+      },
+      'ready:single': {
+        cat: 'קרוסלת הבית · טאב 2 מתוך 6',
+        title: 'פרופיל Single (9.0g)',
+        badge: 'UIState::READY · Tab 1',
+        desc: 'פרופיל מנת אספרסו יחידה (ברירת מחדל 9.0g). זהה בהתנהגות ל-Double ול-Custom — כל פרופיל שומר ב-NVS יעד משקל נפרד ויעד זמן נפרד.',
+        tip: 'החלקה שמאלה מ-Single תעביר אותך למסך Manual (שקילה חיה וטחינה ידנית).',
+        actions: [
+          { label: 'עריכת Single', sub: 'לחיצה ארוכה על 9.0g', fn: () => openEdit() },
+          { label: 'טחינת Single', sub: 'מריץ טחינה חיה עד 9.0g', fn: () => startGrindSim() },
+          { label: 'עבור ל-Manual', sub: 'החלקה שמאלה לטאב 0', fn: () => goReadyTab(0, '← Manual') },
+          { label: 'חזור ל-Double', sub: 'החלקה ימינה לטאב 2', fn: () => goReadyTab(2, 'Double →') }
+        ]
+      },
+      'ready:custom': {
+        cat: 'קרוסלת הבית · טאב 4 מתוך 6',
+        title: 'פרופיל Custom (20.5g)',
+        badge: 'UIState::READY · Tab 3',
+        desc: 'פרופיל שלישי חופשי (למשל לפילטר V60, ריסטרטו, או קפה נטול קפאין). בטחינה מקומית או מה-Studio באמצעות פרופיל שמור, אין הגבלת 30g — אפשר לעבוד גם עם מנות גדולות.',
+        tip: 'החלקה ימינה מ-Custom פותחת את מסך סטטוס ה-Wi-Fi וה-QR.',
+        actions: [
+          { label: 'עריכת Custom', sub: 'לחיצה ארוכה על היעד', fn: () => openEdit() },
+          { label: 'טחינת Custom', sub: 'מריץ טחינה חיה', fn: () => startGrindSim() },
+          { label: 'המשך ל-Wi-Fi', sub: 'החלקה ימינה לטאב 4', fn: () => goReadyTab(4, 'Wi-Fi →') },
+          { label: 'חזור ל-Double', sub: 'החלקה שמאלה', fn: () => goReadyTab(2, '← Double') }
+        ]
+      },
+      'ready:manual': {
+        cat: 'קרוסלת הבית · טאב 1 מתוך 6',
+        title: `מצב Manual — ${state.manualHoldMode ? 'לחיצה ממושכת (Hold)' : 'Start / Stop'}`,
+        badge: 'UIState::READY · Tab 0',
+        desc: 'הופך את המטחנה למשקל קפה חי עם איפוס מהיר (TARE) וטחינה ידנית (עם הגבלת בטיחות אוטומטית של 30 שניות). ברירת המחדל היא Start/Stop (לחיצה להפעלה, לחיצה לעצירה), וניתן להחליף ל-Hold-to-Grind בהגדרות (Grind Settings → Manual Hold או ב-Smart Grind Studio).',
+        tip: 'נסה ללחוץ למטה על "החלף Start/Stop ↔ Hold" כדי להרגיש את שני המצבים מיד על הכפתור התחתון!',
+        actions: [
+          { label: state.manualHoldMode ? 'עבור ל-Start / Stop' : 'עבור ל-Hold to Grind', sub: 'מחליף את הגדרת Manual Hold בחי', fn: () => { stopGrindSim(); state.manualHoldMode = !state.manualHoldMode; showToast(state.manualHoldMode ? 'Manual: Hold' : 'Manual: Start/Stop'); render(); } },
+          { label: 'לחיצת TARE', sub: 'מאפס את המשקל החי ל-0.0g', fn: () => { state.manualWeight = 0; renderScreen(); showToast('Tared!'); } },
+          { label: 'החלק ל-Single', sub: 'חזרה לפרופילים האוטומטיים', fn: () => goReadyTab(1, 'Single →') }
+        ]
+      },
+      'ready:wifi': {
+        cat: 'קרוסלת הבית · טאב 5 מתוך 6',
+        title: 'סטטוס Wi-Fi ו-QR להתחברות',
+        badge: 'UIState::READY · Tab 4',
+        desc: 'מציג את שם הרשת הביתית, כתובת ה-IP וכתובת ה-mDNS (`http://smartgrind.local`) לפתיחת ה-Smart Grind Studio. אם אין Wi-Fi מוגדר, מציג קוד QR לסריקה מהירה מהטלפון.',
+        tip: 'נסה ללחוץ על "Simulate Setup AP QR" על המסך כדי לראות איך נראה מסך ההגדרה הראשונית.',
+        actions: [
+          { label: 'החלף תצוגת Connected / QR', sub: 'הדמיה של מצב AP ראשוני', fn: () => { state.wifiSetupMode = !state.wifiSetupMode; renderScreen(); } },
+          { label: 'פתח הגדרות Wi-Fi', sub: 'לחיצה על הכפתור התחתון', fn: () => { state.screen = 'menu'; state.menuSubPage = 'wifi'; render(); } },
+          { label: 'החלק ל-MENU', sub: 'לטאב האחרון בקרוסלה', fn: () => goReadyTab(5, 'Menu →') }
+        ]
+      },
+      'ready:menu_tab': {
+        cat: 'קרוסלת הבית · טאב 6 מתוך 6',
+        title: 'שער הכניסה לתפריט ההגדרות (MAIN MENU)',
+        badge: 'UIState::READY · Tab 5',
+        desc: 'הטאב הימני ביותר בקרוסלה. לחיצה על הכפתור התחתון פותחת את תפריט ההגדרות המלא (כיול משקל, Display, Adaptive Grind, Wi-Fi, Auto-Tune וסטטיסטיקות).',
+        tip: 'אפשר לכוון את רוב ההגדרות האלה גם בנוחות מהטלפון דרך Smart Grind Studio.',
+        actions: [
+          { label: 'פתח MAIN MENU', sub: 'נכנס לרשימת ההגדרות', fn: () => { state.screen = 'menu'; state.menuSubPage = 'main'; render(); } },
+          { label: 'חזור ל-Double', sub: 'קפיצה חזרה למסך הטחינה', fn: () => goReadyTab(2, 'Double') }
+        ]
+      },
+      'edit': {
+        cat: 'מסך עריכה · EDIT',
+        title: 'עריכת יעד משקל / זמן',
+        badge: 'UIState::EDIT',
+        desc: 'נפתח בלחיצה ארוכה על הערך בפרופיל. כפתורי + ו-− משנים את היעד בקפיצות מדויקות של 0.1g (או 0.1s). למעלה: ✓ ירוק לשמירה ב-NVS, או ✕ אפור לביטול.',
+        tip: 'החזקה ממושכת של + או − במכשיר האמיתי מאיצה את הקפיצות אוטומטית.',
+        actions: [
+          { label: 'שמור שינוי (✓)', sub: 'שומר וחוזר למסך הבית', fn: () => { const p = currentProfile(); if (state.mode === 'WEIGHT') p.weight = state.editDraftValue; else p.time = state.editDraftValue; state.screen = 'ready'; render(); } },
+          { label: 'בטל (✕)', sub: 'יוצא בלי לשמור', fn: () => { state.screen = 'ready'; render(); } }
+        ]
+      },
+      'grinding': {
+        cat: 'טחינה פעילה · GRINDING',
+        title: state.grindLayout === 'portafilter' ? 'מסך הפורטפילטר האיטלקי (טחינה חיה)' : 'מסך הטחינה הקלאסי (קשת התקדמות)',
+        badge: 'UIState::GRINDING',
+        desc: 'מציג בזמן אמת את שלבי הטחינה (TARE ← GRINDING ← SETTLING), המשקל הגדול במרכז, קצב הזרימה (g/s), גרגרי הקפה הנופלים, וערמת הקפה שעולה בהחלקה רכה בתוך הסלסלה.',
+        tip: 'כפתור STOP האדום בתחתית זמין בכל רגע ומכבה את הרליי מיידית. נסה להחליף בין תצוגת Portafilter ל-Classic Arc כדי להשוות!',
+        actions: [
+          { label: 'דלג למסך סיום', sub: 'לראות את פעימת הסיום וכפתור +', fn: () => jumpToComplete() },
+          { label: 'החלף Portafilter ↔ Classic', sub: 'משנה את סגנון המסך בחי', fn: () => { state.grindLayout = state.grindLayout === 'portafilter' ? 'classic' : 'portafilter'; render(); } },
+          { label: 'עצירת חירום (STOP)', sub: 'עוצר וחוזר ל-READY', fn: () => { stopGrindSim(); state.screen = 'ready'; render(); } }
+        ]
+      },
+      'complete': {
+        cat: 'סיום טחינה · GRIND COMPLETE',
+        title: 'מסך סיום — סטייה מהיעד וכפתור פולס (+)',
+        badge: 'UIState::GRIND_COMPLETE',
+        desc: 'בסיום הטחינה מסגרת הפורטפילטר, המשקל הסופי והגרף נצבעים בירוק, ומוצגת הסטייה המדויקת מהיעד (למשל +0.02g). בתחתית מופיע כפתור OK ירוק ולצידו כפתור + כחול לפולס השלמה קצר (Top-up Pulse) שמודד את המנה מחדש.',
+        tip: 'נסה ללחוץ למטה על "חיישן כוס על המשקל" כדי לדמות הרמת כוס — תראה שברגע שהכוס מורמת, כפתור ה-+ נעלם אוטומטית כדי למנוע הפעלה בטעות!',
+        actions: [
+          { label: 'הפעל Top-up Pulse (+)', sub: 'מוסיף פולס קצר ומעדכן משקל', fn: () => triggerTopUpPulse() },
+          { label: state.cupPresent ? 'דמה הרמת כוס' : 'החזר כוס למשקל', sub: 'בודק היעלמות אוטומטית של כפתור +', fn: () => { state.cupPresent = !state.cupPresent; render(); } },
+          { label: 'אישור (OK)', sub: 'חוזר למסך הבית READY', fn: () => { state.screen = 'ready'; render(); } },
+          { label: 'הרץ טחינה מחדש', sub: 'לצפייה חוזרת באנימציה', fn: () => startGrindSim() }
+        ]
+      },
+      'menu': {
+        cat: 'הגדרות מערכת · MENU',
+        title: 'תפריט ההגדרות המלא על המכשיר',
+        badge: 'UIState::MENU',
+        desc: 'גישה לכל כלי הכיול והתצורה: Scale & Tare, Calibrate, Tune Pulses (Auto-Tune), Motor Test, Bluetooth, Wi-Fi, Display (בחירת Portafilter ובהירות), Grind Settings (Adaptive Coast ו-Swipe) ו-Diagnostics.',
+        tip: 'לחץ על Display בתוך מסך ה-AMOLED כדי להחליף בין מסך הפורטפילטר לתצוגה הקלאסית.',
+        actions: [
+          { label: 'פתח Display', sub: 'בחירת Portafilter ובהירות', fn: () => { state.menuSubPage = 'display'; render(); } },
+          { label: 'פתח Grind Settings', sub: 'Adaptive Coast ו-Swipe', fn: () => { state.menuSubPage = 'grind'; render(); } },
+          { label: 'פתח Wi-Fi', sub: 'כתובת IP וחיבור Studio', fn: () => { state.menuSubPage = 'wifi'; render(); } },
+          { label: 'חזור ל-READY', sub: 'יציאה מהתפריט', fn: () => goReadyTab(2, 'READY') }
+        ]
+      },
+      'note': {
+        cat: 'שכבת הודעות מתוזמנת · MORNING NOTE',
+        title: 'הערת בוקר על מסך ה-AMOLED',
+        badge: 'Overlay · LittleFS + PSRAM',
+        desc: 'הודעה או ציור שנשלחו מהטלפון דרך Smart Grind Studio (מיידית, חד-פעמית, או יומית). מוצגת על כל המסך לפני כיבוי הפאנל, עם הזזת פיקסלים עדינה (±3px) ומגבלת 6 שעות נגד צריבת AMOLED.',
+        tip: 'לחיצה בכל מקום על המסך (או התחלת טחינה) סוגרת מיד את ההערה ומחזירה אותך ל-READY.',
+        actions: [
+          { label: 'גע לסגירת ההערה', sub: 'חוזר מיידית למסך הבית', fn: () => goReadyTab(2, 'Note dismissed') }
+        ]
+      }
+    };
+    return map[k] || map['ready:double'];
+  }
+
+  function renderGuideAndMaps() {
+    const info = getGuideInfo();
+    guideCategoryEl.textContent = info.cat;
+    guideTitleEl.textContent = info.title;
+    guideBadgeEl.textContent = info.badge;
+    guideDescEl.textContent = info.desc;
+    guideTipEl.textContent = info.tip;
+
+    guideActionsEl.innerHTML = '';
+    info.actions.forEach(a => {
+      const b = document.createElement('button');
+      b.className = 'text-right p-2.5 rounded-xl border border-[var(--border)] bg-[var(--background)] hover:border-[var(--primary)] transition flex flex-col gap-0.5';
+      b.innerHTML = `<span class="text-xs font-bold text-[var(--foreground)]">${a.label}</span><span class="text-xs text-[var(--muted-foreground)]">${a.sub}</span>`;
+      b.onclick = a.fn;
+      guideActionsEl.appendChild(b);
+    });
+
+    // Update helper buttons text
+    btnToggleLayout.textContent = state.grindLayout === 'portafilter' ? 'תצוגה: פורטפילטר' : 'תצוגה: קשת קלאסית';
+    btnToggleCup.textContent = state.cupPresent ? 'כוס מונחת ✓' : 'כוס הורמה ✕';
+    btnToggleCup.className = `px-2.5 py-1 rounded-md font-semibold text-xs border transition ${
+      state.cupPresent
+        ? 'border-[var(--success)] text-[var(--success)] bg-[var(--success)]/10'
+        : 'border-[var(--warning)] text-[var(--warning)] bg-[var(--warning)]/10'
+    }`;
+
+    // Update top tour tabs & step counter
+    const curKey = activeKey();
+    let tourIdx = TOUR_STEPS.findIndex(s => s.key === curKey);
+    if (tourIdx === -1) tourIdx = 0;
+    tourStepLabelEl.textContent = `שלב ${tourIdx + 1} / ${TOUR_STEPS.length}`;
+
+    screenTabsEl.innerHTML = '';
+    TOUR_STEPS.forEach((step) => {
+      const btn = document.createElement('button');
+      const isAct = step.key === curKey;
+      btn.className = `px-2.5 py-1 rounded-lg text-xs font-medium whitespace-nowrap border transition ${
+        isAct
+          ? 'bg-[var(--primary)] text-[var(--primary-foreground)] border-[var(--primary)] font-semibold'
+          : 'bg-[var(--background)] text-[var(--muted-foreground)] border-[var(--border)] hover:text-[var(--foreground)]'
+      }`;
+      btn.textContent = step.label;
+      btn.onclick = () => { step.apply(); render(); };
+      screenTabsEl.appendChild(btn);
+    });
+
+    // Render Navigation Map Row 1 (6 Ready Tabs)
+    const readyDefs = [
+      { key: 'ready:manual', idx: 0, title: 'Manual', sub: 'משקל חי + Tare' },
+      { key: 'ready:single', idx: 1, title: 'Single', sub: `${state.profiles[0].weight.toFixed(1)}g` },
+      { key: 'ready:double', idx: 2, title: 'Double', sub: `${state.profiles[1].weight.toFixed(1)}g` },
+      { key: 'ready:custom', idx: 3, title: 'Custom', sub: `${state.profiles[2].weight.toFixed(1)}g` },
+      { key: 'ready:wifi', idx: 4, title: 'Wi-Fi', sub: 'IP + QR' },
+      { key: 'ready:menu_tab', idx: 5, title: 'Menu', sub: 'כניסה להגדרות' }
+    ];
+    mapReadyRowEl.innerHTML = '';
+    readyDefs.forEach(d => {
+      const el = document.createElement('button');
+      el.className = `p-2 rounded-xl border border-[var(--border)] bg-[var(--background)] hover:border-[var(--primary)] text-center transition ${curKey === d.key ? 'screen-pill-active' : ''}`;
+      el.innerHTML = `<div class="text-xs font-bold text-[var(--foreground)]">${d.title}</div><div class="text-xs text-[var(--muted-foreground)] mt-0.5">${d.sub}</div>`;
+      el.onclick = () => goReadyTab(d.idx);
+      mapReadyRowEl.appendChild(el);
+    });
+
+    // Render Navigation Map Row 2 (Secondary Screens)
+    const subDefs = [
+      { key: 'edit', title: 'Edit Target', sub: 'עריכת יעד (+/-)', fn: () => openEdit() },
+      { key: 'grinding', title: 'Grinding', sub: 'פורטפילטר / קשת', fn: () => startGrindSim() },
+      { key: 'complete', title: 'Complete +', sub: 'סיום ופולס השלמה', fn: () => jumpToComplete() },
+      { key: 'menu', title: 'Settings', sub: 'תפריט מלא', fn: () => { stopGrindSim(); state.screen = 'menu'; state.menuSubPage = 'main'; render(); } }
+    ];
+    mapSubRowEl.innerHTML = '';
+    subDefs.forEach(d => {
+      const el = document.createElement('button');
+      el.className = `p-2.5 rounded-xl border border-[var(--border)] bg-[var(--background)] hover:border-[var(--primary)] text-center transition ${curKey === d.key ? 'screen-pill-active' : ''}`;
+      el.innerHTML = `<div class="text-xs font-bold text-[var(--foreground)]">${d.title}</div><div class="text-xs text-[var(--muted-foreground)] mt-0.5">${d.sub}</div>`;
+      el.onclick = d.fn;
+      mapSubRowEl.appendChild(el);
+    });
+  }
+
+  function render() {
+    renderScreen();
+    renderGuideAndMaps();
+  }
+
+  // ===== Real Touch / Mouse Swipe Detection on the AMOLED =====
+  let swipeStart = null;
+  amoledEl.addEventListener('pointerdown', (e) => {
+    swipeStart = { x: e.clientX, y: e.clientY, time: performance.now() };
+  });
+  amoledEl.addEventListener('pointerup', (e) => {
+    if (!swipeStart) return;
+    const dx = e.clientX - swipeStart.x;
+    const dy = e.clientY - swipeStart.y;
+    const dt = performance.now() - swipeStart.time;
+    swipeStart = null;
+    if (dt > 700) return;
+
+    if (state.screen === 'ready') {
+      if (Math.abs(dx) > 42 && Math.abs(dx) > Math.abs(dy) * 1.2) {
+        if (dx < 0 && state.readyTabIndex < READY_TABS.length - 1) {
+          goReadyTab(state.readyTabIndex + 1, 'Swipe ← Next Tab');
+        } else if (dx > 0 && state.readyTabIndex > 0) {
+          goReadyTab(state.readyTabIndex - 1, 'Swipe → Prev Tab');
+        }
+      } else if (Math.abs(dy) > 48 && Math.abs(dy) > Math.abs(dx) * 1.3 && state.readyTabIndex >= 1 && state.readyTabIndex <= 3) {
+        toggleMode();
+      }
+    }
+  });
+
+  // ===== Helper Controls =====
+  document.getElementById('btnSwipeLeft').onclick = () => {
+    if (state.screen !== 'ready') { goReadyTab(2); return; }
+    goReadyTab(Math.max(0, state.readyTabIndex - 1), '← טאב קודם');
+  };
+  document.getElementById('btnSwipeRight').onclick = () => {
+    if (state.screen !== 'ready') { goReadyTab(2); return; }
+    goReadyTab(Math.min(READY_TABS.length - 1, state.readyTabIndex + 1), 'טאב הבא →');
+  };
+  document.getElementById('btnVerticalSwipe').onclick = () => {
+    if (state.screen !== 'ready' || state.readyTabIndex < 1 || state.readyTabIndex > 3) {
+      state.screen = 'ready';
+      state.readyTabIndex = 2;
+    }
+    toggleMode();
+  };
+  btnToggleLayout.onclick = () => {
+    state.grindLayout = state.grindLayout === 'portafilter' ? 'classic' : 'portafilter';
+    showToast(state.grindLayout === 'portafilter' ? 'Portafilter Screen' : 'Classic Arc');
+    render();
+  };
+  document.getElementById('btnTriggerNote').onclick = () => {
+    stopGrindSim();
+    state.screen = state.screen === 'note' ? 'ready' : 'note';
+    render();
+  };
+  btnToggleCup.onclick = () => {
+    state.cupPresent = !state.cupPresent;
+    showToast(state.cupPresent ? 'Cup placed on scale' : 'Cup lifted from scale');
+    render();
+  };
+
+  document.getElementById('tourPrevBtn').onclick = () => {
+    const idx = TOUR_STEPS.findIndex(s => s.key === activeKey());
+    const prev = (idx <= 0 ? TOUR_STEPS.length - 1 : idx - 1);
+    TOUR_STEPS[prev].apply();
+    render();
+  };
+  document.getElementById('tourNextBtn').onclick = () => {
+    const idx = TOUR_STEPS.findIndex(s => s.key === activeKey());
+    const next = (idx < 0 || idx >= TOUR_STEPS.length - 1 ? 0 : idx + 1);
+    TOUR_STEPS[next].apply();
+    render();
+  };
+
+  window.addEventListener('themechange', () => {
+    if (state.screen === 'grinding' || state.screen === 'complete') {
+      if (state.grindLayout === 'portafilter') drawPortafilterCanvas();
+      else drawClassicCanvas();
+    }
+  });
+
+  // Initial render
+  render();
+})();
+</script>
+</body>
+</html>
