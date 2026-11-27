@@ -682,6 +682,7 @@ textarea{resize:vertical;min-height:92px;line-height:1.45}
 <script>
 const $=id=>document.getElementById(id);
 const liveSamples=[],liveFlows=[];
+let liveTarget=null;
 const state={
   page:'dashboard',settings:null,safety:null,note:null,
   dashboardProfiles:null,dashboardMode:'weight',
@@ -760,6 +761,8 @@ function chart(canvas,series,label='live'){
   series.forEach((s,si)=>{
     if(s.values.length<2)return;
     let lo=Math.min(...s.values),hi=Math.max(...s.values);
+    const target=Number.isFinite(s.target)?s.target:null;
+    if(target!==null){lo=Math.min(lo,target);hi=Math.max(hi,target*1.12);}
     if(hi-lo<.2){lo-=.1;hi+=.1;}
     c.strokeStyle=s.color||css.getPropertyValue(si?'--sage':'--accent');
     c.lineWidth=2.2;c.beginPath();
@@ -768,12 +771,19 @@ function chart(canvas,series,label='live'){
       i?c.lineTo(x,y):c.moveTo(x,y);
     });
     c.stroke();
+    if(target!==null){
+      const y=h-10-(target-lo)*(h-20)/(hi-lo);
+      c.save();c.setLineDash([6,5]);c.lineWidth=1.2;c.globalAlpha=.6;
+      c.beginPath();c.moveTo(0,y);c.lineTo(w,y);c.stroke();c.restore();
+      c.fillStyle=muted;c.font='11px system-ui';
+      c.fillText(`target ${target.toFixed(1)} g`,8,y-6);
+    }
   });
   c.fillStyle=muted;c.font='11px system-ui';c.fillText(label,8,15);
 }
 function drawLive(){
   const css=getComputedStyle(document.documentElement);
-  chart($('liveChart'),[{values:liveSamples,color:css.getPropertyValue('--accent')},{values:liveFlows,color:css.getPropertyValue('--sage')}]);
+  chart($('liveChart'),[{values:liveSamples,color:css.getPropertyValue('--accent'),target:liveTarget},{values:liveFlows,color:css.getPropertyValue('--sage')}]);
 }
 function stableFlow(raw,active){
   displayFlow+=(raw-displayFlow)*(active?0.35:0.12);
@@ -856,6 +866,8 @@ function render(s){
   control.disabled=commandPending||terminal||(!idle&&!sampling);
   $('tareButton').disabled=commandPending||!idle;
   $('dismissButton').disabled=commandPending||!terminal;
+  /* The dashed target belongs to the grind on the chart, so it is not changed while idle. */
+  if(!idle)liveTarget=g.mode==='weight'&&g.target_weight>0?g.target_weight:null;
   if(sampling){
     liveSamples.push(s.scale.weight);liveFlows.push(flow);
     if(liveSamples.length>600){liveSamples.shift();liveFlows.shift();}
