@@ -48,6 +48,7 @@ class ControllerSerializationTest(unittest.TestCase):
 #include <type_traits>
 #include "src/controllers/grind_session.h"
 #include "src/system/operation_interlock.h"
+#include "src/controllers/remote_grind_safety.h"
 #define LOG_BLE(...) ((void)0)
 constexpr int GRIND_PURGE_MODE_DEFAULT = 1;
 constexpr float GRIND_PURGE_AMOUNT_DEFAULT_G = 1;
@@ -82,12 +83,16 @@ public:
     unsigned long phase_start_time = 1;
     GrinderPurgeMode grinder_purge_mode_for_session{};
     float grinder_purge_amount_g_for_session = 1;
+    bool active_session_is_remote_ = false;
+    uint16_t active_no_flow_timeout_ms_ = 0;
+    float active_no_flow_min_weight_g_ = 0.5f;
     char last_error_message[32]{};
     Strategy* active_strategy = nullptr;
     GrindSessionDescriptor session_descriptor{};
     int strategy_context = 0;
     void queue_flash_operation(const FlashOpRequest&) {}
     template<class... Args> void queue_log_message(Args...) {}
+    void abort_no_flow(const GrindLoopData&) {}
     void switch_phase(GrindPhase next, const GrindLoopData& = {}) { phase = next; }
     void stop_grind();
     void return_to_idle() { phase = GrindPhase::IDLE; }

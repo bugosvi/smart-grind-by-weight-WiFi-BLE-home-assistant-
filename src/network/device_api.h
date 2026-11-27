@@ -120,6 +120,7 @@ private:
                   const char* action, bool accepted, const char* reason);
     void send_ack(const Command& command, const char* action, bool accepted,
                   const char* reason);
+    void configure_safety_routes(AsyncWebServer* server);
     void configure_settings_routes(AsyncWebServer* server);
     bool queue_profile_selection(AsyncWebServerRequest* request);
     bool queue_settings_update(AsyncWebServerRequest* request);

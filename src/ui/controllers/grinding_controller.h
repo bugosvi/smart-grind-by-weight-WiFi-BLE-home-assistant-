@@ -55,6 +55,7 @@ private:
     lv_timer_t* grind_complete_timer_ = nullptr;
     lv_timer_t* grind_timeout_timer_ = nullptr;
     bool chart_updates_enabled_ = false;
+    bool last_can_pulse_ = false;
     float final_grind_weight_ = 0.0f;
     int final_grind_progress_ = 0;
     float error_grind_weight_ = 0.0f;

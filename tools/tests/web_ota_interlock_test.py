@@ -86,6 +86,13 @@ struct Preferences {
     int getInt(const char*,int value) { return value; }
     float getFloat(const char*,float value) { return value; }
 };
+struct RemoteGrindOptions {
+    bool is_remote = false;
+    bool skip_purge_confirm = false;
+    uint16_t max_grind_time_s = 0;
+    uint16_t no_flow_timeout_ms = 0;
+    float no_flow_min_weight_g = 0.5f;
+};
 struct GrindMotor { bool initialized=true; bool is_initialized() { return initialized; } } grind_motor;
 struct GrindController {
     std::recursive_mutex control_mutex;
@@ -98,10 +105,14 @@ struct GrindController {
     Preferences* preferences=nullptr;
     GrinderPurgeMode grinder_purge_mode_for_session{};
     float grinder_purge_amount_g_for_session=0;
+    bool active_session_is_remote_=false;
+    uint16_t active_session_max_time_s_=0;
+    uint16_t active_no_flow_timeout_ms_=0;
+    float active_no_flow_min_weight_g_=0.5f;
     const char* PREF_KEY_GRINDER_MODE="mode";
     const char* PREF_KEY_GRINDER_AMOUNT_G="amount";
     OperationInterlock::Token operation_token_=0;
-    bool start_grind(float,uint32_t,GrindMode);
+    bool start_grind(float,uint32_t,GrindMode,const RemoteGrindOptions& = {});
 } controller;
 struct BluetoothManager {
     bool enabled=false, transferring=false;
@@ -109,6 +120,10 @@ struct BluetoothManager {
     bool is_transfer_active() const { return transferring; }
     void disable() { enabled=false; }
 } bluetooth;
+struct {
+    bool upload_active=false;
+    bool is_upload_active() const { return upload_active; }
+} morning_note_store;
 struct Grinder { unsigned stops=0; void stop() { assert(!operation_interlock().try_acquire()); ++stops; } } motor;
 struct HardwareManager { Grinder* get_grinder() { return &motor; } } hardware;
 struct { void update() {} } device_api;

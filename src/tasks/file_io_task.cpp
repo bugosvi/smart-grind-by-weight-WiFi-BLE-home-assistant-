@@ -149,6 +149,7 @@ void FileIOTask::task_impl() {
         // (start/end session) run on Core 1 in this low-priority task
         extern GrindController grind_controller;
         grind_controller.process_queued_flash_operations();
+        grind_controller.flush_adaptive_coast_to_nvs();
         grind_controller.process_queued_log_messages();
         
         // Periodic filesystem health check

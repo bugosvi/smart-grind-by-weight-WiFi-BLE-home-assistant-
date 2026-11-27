@@ -250,6 +250,7 @@ public:
     
     // Flash operation system
     void process_queued_flash_operations(); // Core 1: Process flash ops from Core 0 queue
+    void flush_adaptive_coast_to_nvs(); // Core 1 (unlocked caller only): Persist pending adaptive coast state to NVS
     bool queue_flash_operation(const FlashOpRequest& request); // Core 0: Queue flash operation
     
     // Log message system

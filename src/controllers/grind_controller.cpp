@@ -1225,43 +1225,47 @@ bool GrindController::queue_flash_operation(const FlashOpRequest& request) {
 }
 
 void GrindController::process_queued_flash_operations() {
+    const auto control_lock = lock_control();
+    if (flash_op_queue) {
+        FlashOpRequest request;
+        // Process all queued flash operations from Core 0
+        while (xQueueReceive(flash_op_queue, &request, 0) == pdPASS) {
+            switch (request.operation_type) {
+                case FlashOpRequest::START_GRIND_SESSION:
+                    // Perform the blocking flash operation on Core 1
+                    LOG_BLE("[%lums FLASH_OP] Processing START_GRIND_SESSION on Core 1: mode=%s, profile=%d\n",
+                            millis(),
+                            request.descriptor.mode == GrindMode::TIME ? "TIME" : "WEIGHT",
+                            request.descriptor.profile_id);
+                    grind_logger.start_grind_session(request.descriptor, request.start_weight);
+                    break;
+
+                case FlashOpRequest::END_GRIND_SESSION:
+                    // Perform the blocking flash operation on Core 1
+                    LOG_BLE("[%lums FLASH_OP] Processing END_GRIND_SESSION on Core 1: %s, %.2fg, %d pulses\n",
+                            millis(), request.result_string, request.final_weight, request.pulse_count);
+                    grind_logger.end_grind_session(request.result_string, request.final_weight, request.pulse_count,
+                                                   request.completed_at_ms);
+                    break;
+
+                case FlashOpRequest::UPDATE_MANUAL_RUNTIME:
+                    statistics_manager.update_manual_grind(request.motor_runtime_ms);
+                    LOG_BLE("[%lums FLASH_OP] Recorded manual motor runtime: %lums\n",
+                            millis(), static_cast<unsigned long>(request.motor_runtime_ms));
+                    break;
+
+                default:
+                    LOG_BLE("WARNING: Unknown flash operation type %d\n", request.operation_type);
+                    break;
+            }
+        }
+    }
+}
+
+void GrindController::flush_adaptive_coast_to_nvs() {
     bool should_save_adaptive_coast = false;
     {
         const auto control_lock = lock_control();
-        if (flash_op_queue) {
-            FlashOpRequest request;
-            // Process all queued flash operations from Core 0
-            while (xQueueReceive(flash_op_queue, &request, 0) == pdPASS) {
-                switch (request.operation_type) {
-                    case FlashOpRequest::START_GRIND_SESSION:
-                        // Perform the blocking flash operation on Core 1
-                        LOG_BLE("[%lums FLASH_OP] Processing START_GRIND_SESSION on Core 1: mode=%s, profile=%d\n",
-                                millis(),
-                                request.descriptor.mode == GrindMode::TIME ? "TIME" : "WEIGHT",
-                                request.descriptor.profile_id);
-                        grind_logger.start_grind_session(request.descriptor, request.start_weight);
-                        break;
-
-                    case FlashOpRequest::END_GRIND_SESSION:
-                        // Perform the blocking flash operation on Core 1
-                        LOG_BLE("[%lums FLASH_OP] Processing END_GRIND_SESSION on Core 1: %s, %.2fg, %d pulses\n",
-                                millis(), request.result_string, request.final_weight, request.pulse_count);
-                        grind_logger.end_grind_session(request.result_string, request.final_weight, request.pulse_count,
-                                                       request.completed_at_ms);
-                        break;
-
-                    case FlashOpRequest::UPDATE_MANUAL_RUNTIME:
-                        statistics_manager.update_manual_grind(request.motor_runtime_ms);
-                        LOG_BLE("[%lums FLASH_OP] Recorded manual motor runtime: %lums\n",
-                                millis(), static_cast<unsigned long>(request.motor_runtime_ms));
-                        break;
-
-                    default:
-                        LOG_BLE("WARNING: Unknown flash operation type %d\n", request.operation_type);
-                        break;
-                }
-            }
-        }
         const bool motor_session_finished =
             (phase == GrindPhase::IDLE ||
              phase == GrindPhase::COMPLETED ||

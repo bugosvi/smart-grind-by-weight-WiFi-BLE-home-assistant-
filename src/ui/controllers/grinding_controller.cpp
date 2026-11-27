@@ -174,6 +174,13 @@ void GrindingUIController::update(UIState current_state) {
                 ui_manager_->grinding_screen.update_current_weight(current_weight);
             }
             ui_manager_->grinding_screen.update_progress(final_grind_progress_);
+            if (ui_manager_->grind_controller) {
+                const bool can_pulse_now = ui_manager_->grind_controller->can_pulse();
+                if (can_pulse_now != last_can_pulse_) {
+                    last_can_pulse_ = can_pulse_now;
+                    update_button_layout();
+                }
+            }
             break;
         }
         case UIState::GRIND_TIMEOUT: {
@@ -721,6 +728,7 @@ void GrindingUIController::enter_grind_complete_state() {
     ui_manager_->grinding_screen.set_mode(ui_manager_->current_mode);
     ui_manager_->grinding_screen.update_current_weight(final_grind_weight_);
     ui_manager_->grinding_screen.update_progress(final_grind_progress_);
+    last_can_pulse_ = ui_manager_->grind_controller && ui_manager_->grind_controller->can_pulse();
 }
 
 void GrindingUIController::enter_grind_timeout_state() {

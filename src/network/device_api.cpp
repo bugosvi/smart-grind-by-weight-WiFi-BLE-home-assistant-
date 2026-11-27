@@ -233,6 +233,7 @@ void DeviceApi::init(AsyncWebServer* server, HardwareManager* hardware,
     });
     websocket_.handleHandshake(websocket_origin_allowed);
     server->addHandler(&websocket_);
+    configure_safety_routes(server);
     configure_settings_routes(server);
     // Avoid mistaking a previous boot's result for a newly queued request.
     next_settings_id_ = esp_random();
@@ -639,7 +640,7 @@ void DeviceApi::queue_command(uint32_t client_id, const uint8_t* data, size_t le
     }
 }
 
-void DeviceApi::configure_settings_routes(AsyncWebServer* server) {
+void DeviceApi::configure_safety_routes(AsyncWebServer* server) {
     server->on(AsyncURIMatcher::exact("/api/v1/safety"), HTTP_GET, [this](AsyncWebServerRequest* request) {
         AsyncWebServerResponse* response = request->beginResponse(200, "application/json", safety_json());
         response->addHeader("Cache-Control", "no-store");
@@ -769,6 +770,17 @@ void DeviceApi::configure_settings_routes(AsyncWebServer* server) {
                 }
             }
 
+            struct InterlockGuard {
+                OperationInterlock::Token token = 0;
+                ~InterlockGuard() {
+                    if (token) operation_interlock().release(token);
+                }
+            } interlock_guard{operation_interlock().try_acquire()};
+            if (!interlock_guard.token || (grind_controller_ && grind_controller_->is_active())) {
+                request->send(409, "application/json", "{\"error\":\"Grinder must be idle to change safety settings\"}");
+                return;
+            }
+
             if (patch.any_safety_config_field()) {
                 remote_safety::RemoteSafetyConfig updated = get_safety_config();
                 patch.apply_to_config(updated);
@@ -823,6 +835,16 @@ void DeviceApi::configure_settings_routes(AsyncWebServer* server) {
             request->send(403, "application/json", "{\"error\":\"Request origin is not allowed\"}");
             return;
         }
+        struct InterlockGuard {
+            OperationInterlock::Token token = 0;
+            ~InterlockGuard() {
+                if (token) operation_interlock().release(token);
+            }
+        } interlock_guard{operation_interlock().try_acquire()};
+        if (!interlock_guard.token) {
+            request->send(409, "application/json", "{\"error\":\"Grinder must be idle to calibrate empty holder\"}");
+            return;
+        }
         int32_t empty_raw = 0;
         {
             const auto control_lock = grind_controller_->lock_control();
@@ -855,6 +877,9 @@ void DeviceApi::configure_settings_routes(AsyncWebServer* server) {
         response->addHeader("Cache-Control", "no-store");
         request->send(response);
     });
+}
+
+void DeviceApi::configure_settings_routes(AsyncWebServer* server) {
     server->on(AsyncURIMatcher::exact("/api/v1/settings/result"), HTTP_GET, [this](AsyncWebServerRequest* request) {
         uint32_t id = 0;
         bool valid = request->hasParam("id");
