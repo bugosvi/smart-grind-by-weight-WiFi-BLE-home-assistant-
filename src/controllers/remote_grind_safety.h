@@ -104,8 +104,9 @@ inline bool validate_safety_config(const RemoteSafetyConfig& cfg) {
         cfg.remote_max_grind_time_s > kMaxRemoteMaxTimeS) {
         return false;
     }
-    if (cfg.no_flow_timeout_ms < kMinNoFlowTimeoutMs ||
-        cfg.no_flow_timeout_ms > kMaxNoFlowTimeoutMs) {
+    if (cfg.no_flow_timeout_ms != 0 &&
+        (cfg.no_flow_timeout_ms < kMinNoFlowTimeoutMs ||
+         cfg.no_flow_timeout_ms > kMaxNoFlowTimeoutMs)) {
         return false;
     }
     if (cfg.no_flow_min_weight_g < kMinNoFlowWeightG ||

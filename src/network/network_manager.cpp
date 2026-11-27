@@ -42,6 +42,15 @@ void SmartGrindNetworkManager::init(Preferences* preferences) {
         }
     }, ARDUINO_EVENT_WIFI_STA_DISCONNECTED);
 
+    // ESP32 Arduino 3.x requires STA/AP to be started before WiFi.setTxPower()
+    // succeeds; apply configured TX power on both start events.
+    WiFi.onEvent([this](arduino_event_id_t, arduino_event_info_t) {
+        apply_tx_power();
+    }, ARDUINO_EVENT_WIFI_STA_START);
+    WiFi.onEvent([this](arduino_event_id_t, arduino_event_info_t) {
+        apply_tx_power();
+    }, ARDUINO_EVENT_WIFI_AP_START);
+
     initialized_.store(true);
 
     if (!enabled_.load()) {
@@ -214,6 +223,16 @@ void SmartGrindNetworkManager::load_settings() {
     password_ = preferences_ ? preferences_->getString("wifi_pass", "") : String();
     hostname_ = preferences_ ? sanitize_hostname(preferences_->getString("wifi_host", "")) : String();
     if (hostname_.isEmpty()) hostname_ = default_hostname();
+
+    // Load optional TX power cap before first Wi-Fi connection so boot uses it immediately.
+    Preferences safety_prefs;
+    if (safety_prefs.begin("safety", true)) {
+        const uint8_t saved_tx = safety_prefs.getUChar("tx_dbm", 0);
+        safety_prefs.end();
+        if (saved_tx == 0 || (saved_tx >= 8 && saved_tx <= 20)) {
+            tx_power_dbm_.store(saved_tx);
+        }
+    }
 }
 
 void SmartGrindNetworkManager::begin_connection() {
@@ -235,10 +254,12 @@ void SmartGrindNetworkManager::begin_connection() {
     last_join_failure_.store(WifiJoinFailure::NONE);
     WiFi.persistent(false);
     WiFi.mode(WIFI_STA);
-    apply_tx_power();
-    WiFi.setAutoReconnect(true);
+    // Disable background auto-reconnect so update() exclusively gates reconnect
+    // bursts behind !grind_active_.load().
+    WiFi.setAutoReconnect(false);
     WiFi.setHostname(hostname.c_str());
     WiFi.begin(ssid.c_str(), password.c_str());
+    apply_tx_power();
     set_state(NetworkState::WIFI_CONNECTING);
     LOG_BLE("[WIFI] Connecting to configured network as %s.local (tx_power_dbm=%u)\n",
             hostname.c_str(), static_cast<unsigned>(tx_power_dbm_.load()));
@@ -255,7 +276,6 @@ bool SmartGrindNetworkManager::start_setup_access_point(const String& ssid, cons
     // AP+STA keeps the setup network available while the STA radio scans for
     // nearby routers for the provisioning dropdown.
     WiFi.mode(WIFI_AP_STA);
-    apply_tx_power();
     // Some Android/Samsung captive-portal detectors do not launch their sign-in
     // UI when the AP gateway is in private address space. Use the same
     // public-looking, non-routed setup subnet as GaggiMate.
@@ -263,6 +283,7 @@ bool SmartGrindNetworkManager::start_setup_access_point(const String& ssid, cons
     const IPAddress setup_mask(255, 255, 255, 0);
     if (!WiFi.softAPConfig(setup_ip, setup_ip, setup_mask)) return false;
     if (!WiFi.softAP(ssid.c_str(), password.isEmpty() ? nullptr : password.c_str())) return false;
+    apply_tx_power();
     set_state(NetworkState::WIFI_SETUP_AP);
     LOG_BLE("[WIFI] Setup access point started: %s (%s)\n", ssid.c_str(), WiFi.softAPIP().toString().c_str());
     return true;
@@ -277,25 +298,26 @@ void SmartGrindNetworkManager::set_tx_power_dbm(uint8_t dbm) {
 
 void SmartGrindNetworkManager::apply_tx_power() const {
     const uint8_t dbm = tx_power_dbm_.load();
-    if (dbm == 0) {
-        WiFi.setTxPower(WIFI_POWER_19_5dBm);
-        return;
-    }
     wifi_power_t level = WIFI_POWER_19_5dBm;
-    if (dbm <= 9) {
-        level = WIFI_POWER_8_5dBm;
-    } else if (dbm <= 11) {
-        level = WIFI_POWER_11dBm;
-    } else if (dbm <= 13) {
-        level = WIFI_POWER_13dBm;
-    } else if (dbm <= 15) {
-        level = WIFI_POWER_15dBm;
-    } else if (dbm <= 17) {
-        level = WIFI_POWER_17dBm;
-    } else if (dbm <= 18) {
-        level = WIFI_POWER_18_5dBm;
+    if (dbm > 0) {
+        if (dbm <= 9) {
+            level = WIFI_POWER_8_5dBm;
+        } else if (dbm <= 11) {
+            level = WIFI_POWER_11dBm;
+        } else if (dbm <= 13) {
+            level = WIFI_POWER_13dBm;
+        } else if (dbm <= 15) {
+            level = WIFI_POWER_15dBm;
+        } else if (dbm <= 17) {
+            level = WIFI_POWER_17dBm;
+        } else if (dbm <= 18) {
+            level = WIFI_POWER_18_5dBm;
+        }
     }
-    WiFi.setTxPower(level);
+    if (!WiFi.setTxPower(level)) {
+        LOG_BLE("[WIFI] Deferred TX power apply (radio not started yet; target=%u dBm)\n",
+                static_cast<unsigned>(dbm));
+    }
 }
 
 void SmartGrindNetworkManager::handle_connected() {

@@ -199,8 +199,11 @@ bool GrindController::start_grind(float target, uint32_t time_ms, GrindMode grin
 
     // Initialize dynamic pulse algorithm variables
     pulse_flow_rate = 0.0f;
+    predictive_start_weight_ = 0.0f;
     last_predictive_flow_gps_ = 0.0f;
+    last_predictive_flow_window_ms_ = 0;
     predictive_coast_learned_this_shot_ = false;
+    pending_coast_valid_ = false;
     
     // Initialize loop counters
     current_phase_loop_count = 0;
@@ -358,6 +361,7 @@ void GrindController::continue_from_purge() {
     }
 
     // Start motor and transition to predictive grinding
+    predictive_start_weight_ = weight_sensor->get_weight_low_latency();
     if (grinder) {
         grinder->start();
     }
@@ -515,7 +519,18 @@ void GrindController::update() {
 
             // Use configurable grinder purge amount
             bool reached_weight = loop_data.current_weight >= grinder_purge_amount_g_for_session;
-            bool exceeded_duration = (loop_data.now - phase_start_time) >= GRIND_PRIME_MAX_DURATION_MS;
+            const uint32_t prime_elapsed_ms = loop_data.now - phase_start_time;
+            if (active_session_is_remote_ &&
+                remote_safety::check_no_flow_watchdog(
+                    prime_elapsed_ms,
+                    loop_data.current_weight,
+                    false,
+                    active_no_flow_timeout_ms_,
+                    active_no_flow_min_weight_g_)) {
+                abort_no_flow(loop_data);
+                break;
+            }
+            bool exceeded_duration = prime_elapsed_ms >= GRIND_PRIME_MAX_DURATION_MS;
             if (reached_weight || exceeded_duration) {
                 grinder->stop();
                 if (exceeded_duration && !reached_weight) {
@@ -561,6 +576,7 @@ void GrindController::update() {
                     switch_phase(GrindPhase::PURGE_CONFIRM, loop_data);
                 } else {
                     // Prime mode OR fresh grounds: continue immediately to grinding
+                    predictive_start_weight_ = loop_data.current_weight;
                     grinder->start();
                     time_grind_start_ms = loop_data.now;
                     switch_phase(GrindPhase::PREDICTIVE, loop_data);
@@ -890,6 +906,22 @@ void GrindController::switch_phase(GrindPhase new_phase, const GrindLoopData& lo
             } else if (pulse_attempts >= GRIND_MAX_PULSE_ATTEMPTS && fabsf(error) > tolerance) {
                 session_result = GrindSessionResult::MAX_PULSES;
             }
+            if (session_result == GrindSessionResult::SUCCESS &&
+                pending_coast_valid_ &&
+                adaptive_coast_state_.algorithm_enabled) {
+                if (adaptive_grind::update_learned_coast_from_predictive(
+                        adaptive_coast_state_,
+                        pending_coast_end_g_,
+                        pending_coast_settled_g_,
+                        pending_coast_flow_gps_)) {
+                    adaptive_coast_dirty_ = true;
+                    queue_log_message("[ADAPTIVE] Coast committed: %.1fms (ref flow: %.2fg/s, n=%lu)\n",
+                                      adaptive_coast_state_.learned_coast_time_ms,
+                                      adaptive_coast_state_.reference_flow_gps,
+                                      static_cast<unsigned long>(adaptive_coast_state_.sample_count));
+                }
+            }
+            pending_coast_valid_ = false;
         }
         last_session_result_ = session_result;
 
@@ -1150,44 +1182,52 @@ bool GrindController::queue_flash_operation(const FlashOpRequest& request) {
 }
 
 void GrindController::process_queued_flash_operations() {
-    const auto control_lock = lock_control();
-    if (!flash_op_queue) return;
-    FlashOpRequest request;
-    
-    // Process all queued flash operations from Core 0
-    while (xQueueReceive(flash_op_queue, &request, 0) == pdPASS) {
-        switch (request.operation_type) {
-            case FlashOpRequest::START_GRIND_SESSION:
-                // Perform the blocking flash operation on Core 1
-                LOG_BLE("[%lums FLASH_OP] Processing START_GRIND_SESSION on Core 1: mode=%s, profile=%d\n", 
-                        millis(),
-                        request.descriptor.mode == GrindMode::TIME ? "TIME" : "WEIGHT",
-                        request.descriptor.profile_id);
-                grind_logger.start_grind_session(request.descriptor, request.start_weight);
-                break;
-                
-            case FlashOpRequest::END_GRIND_SESSION:
-                // Perform the blocking flash operation on Core 1
-                LOG_BLE("[%lums FLASH_OP] Processing END_GRIND_SESSION on Core 1: %s, %.2fg, %d pulses\n", 
-                        millis(), request.result_string, request.final_weight, request.pulse_count);
-                grind_logger.end_grind_session(request.result_string, request.final_weight, request.pulse_count,
-                                               request.completed_at_ms);
-                if (adaptive_coast_dirty_) {
-                    save_adaptive_coast_state();
-                    adaptive_coast_dirty_ = false;
-                }
-                break;
+    bool should_save_adaptive_coast = false;
+    {
+        const auto control_lock = lock_control();
+        if (flash_op_queue) {
+            FlashOpRequest request;
+            // Process all queued flash operations from Core 0
+            while (xQueueReceive(flash_op_queue, &request, 0) == pdPASS) {
+                switch (request.operation_type) {
+                    case FlashOpRequest::START_GRIND_SESSION:
+                        // Perform the blocking flash operation on Core 1
+                        LOG_BLE("[%lums FLASH_OP] Processing START_GRIND_SESSION on Core 1: mode=%s, profile=%d\n",
+                                millis(),
+                                request.descriptor.mode == GrindMode::TIME ? "TIME" : "WEIGHT",
+                                request.descriptor.profile_id);
+                        grind_logger.start_grind_session(request.descriptor, request.start_weight);
+                        break;
 
-            case FlashOpRequest::UPDATE_MANUAL_RUNTIME:
-                statistics_manager.update_manual_grind(request.motor_runtime_ms);
-                LOG_BLE("[%lums FLASH_OP] Recorded manual motor runtime: %lums\n",
-                        millis(), static_cast<unsigned long>(request.motor_runtime_ms));
-                break;
-                
-            default:
-                LOG_BLE("WARNING: Unknown flash operation type %d\n", request.operation_type);
-                break;
+                    case FlashOpRequest::END_GRIND_SESSION:
+                        // Perform the blocking flash operation on Core 1
+                        LOG_BLE("[%lums FLASH_OP] Processing END_GRIND_SESSION on Core 1: %s, %.2fg, %d pulses\n",
+                                millis(), request.result_string, request.final_weight, request.pulse_count);
+                        grind_logger.end_grind_session(request.result_string, request.final_weight, request.pulse_count,
+                                                       request.completed_at_ms);
+                        break;
+
+                    case FlashOpRequest::UPDATE_MANUAL_RUNTIME:
+                        statistics_manager.update_manual_grind(request.motor_runtime_ms);
+                        LOG_BLE("[%lums FLASH_OP] Recorded manual motor runtime: %lums\n",
+                                millis(), static_cast<unsigned long>(request.motor_runtime_ms));
+                        break;
+
+                    default:
+                        LOG_BLE("WARNING: Unknown flash operation type %d\n", request.operation_type);
+                        break;
+                }
+            }
         }
+        if (adaptive_coast_dirty_ && !is_active()) {
+            adaptive_coast_dirty_ = false;
+            should_save_adaptive_coast = true;
+        }
+    }
+
+    // Perform NVS commit strictly outside control_mutex_ on Core 1
+    if (should_save_adaptive_coast) {
+        save_adaptive_coast_state();
     }
 }
 
@@ -1410,61 +1450,85 @@ void GrindController::set_coast_ratio(float value) {
 //==============================================================================
 
 void GrindController::load_adaptive_coast_state() {
-    const auto control_lock = lock_control();
-    adaptive_coast_state_ = {};
-
+    adaptive_grind::AdaptiveCoastState loaded{};
     Preferences ad_prefs;
-    if (!ad_prefs.begin(adaptive_grind::kPrefsNamespace, true)) {
-        return;
+    if (ad_prefs.begin(adaptive_grind::kPrefsNamespace, true)) {
+        loaded.algorithm_enabled = ad_prefs.getBool(adaptive_grind::kPrefKeyAlgorithmOn, true);
+        loaded.enabled = ad_prefs.getBool(adaptive_grind::kPrefKeyEnabled, true);
+        const float coast_ms = ad_prefs.getFloat(adaptive_grind::kPrefKeyCoastMs, 0.0f);
+        const float ref_flow = ad_prefs.getFloat(adaptive_grind::kPrefKeyRefFlow, 0.0f);
+        const uint32_t samples = ad_prefs.getUInt(adaptive_grind::kPrefKeySamples, 0);
+        ad_prefs.end();
+
+        if (samples > 0 &&
+            std::isfinite(coast_ms) &&
+            coast_ms >= adaptive_grind::kLearnedCoastMinMs &&
+            coast_ms <= adaptive_grind::kLearnedCoastMaxMs &&
+            std::isfinite(ref_flow) &&
+            ref_flow >= 0.4f &&
+            ref_flow <= 5.0f) {
+            loaded.learned_coast_time_ms = coast_ms;
+            loaded.reference_flow_gps = ref_flow;
+            loaded.sample_count = samples;
+            LOG_BLE("Adaptive coast loaded: %.1fms @ %.2fg/s (n=%lu, algo=%d, coast=%d)\n",
+                    coast_ms, ref_flow, static_cast<unsigned long>(samples),
+                    loaded.algorithm_enabled ? 1 : 0, loaded.enabled ? 1 : 0);
+        }
     }
 
-    adaptive_coast_state_.enabled = ad_prefs.getBool(adaptive_grind::kPrefKeyEnabled, true);
-    const float coast_ms = ad_prefs.getFloat(adaptive_grind::kPrefKeyCoastMs, 0.0f);
-    const float ref_flow = ad_prefs.getFloat(adaptive_grind::kPrefKeyRefFlow, 0.0f);
-    const uint32_t samples = ad_prefs.getUInt(adaptive_grind::kPrefKeySamples, 0);
-    ad_prefs.end();
-
-    if (samples > 0 &&
-        std::isfinite(coast_ms) &&
-        coast_ms >= adaptive_grind::kLearnedCoastMinMs &&
-        coast_ms <= adaptive_grind::kLearnedCoastMaxMs &&
-        std::isfinite(ref_flow) &&
-        ref_flow >= 0.4f &&
-        ref_flow <= 5.0f) {
-        adaptive_coast_state_.learned_coast_time_ms = coast_ms;
-        adaptive_coast_state_.reference_flow_gps = ref_flow;
-        adaptive_coast_state_.sample_count = samples;
-        LOG_BLE("Adaptive coast loaded: %.1fms @ %.2fg/s (n=%lu, enabled=%d)\n",
-                coast_ms, ref_flow, static_cast<unsigned long>(samples),
-                adaptive_coast_state_.enabled ? 1 : 0);
-    }
+    const auto control_lock = lock_control();
+    adaptive_coast_state_ = loaded;
 }
 
 bool GrindController::save_adaptive_coast_state() {
-    const auto control_lock = lock_control();
+    adaptive_grind::AdaptiveCoastState snapshot{};
+    {
+        const auto control_lock = lock_control();
+        snapshot = adaptive_coast_state_;
+    }
+
+    // Perform all blocking NVS flash writes strictly outside control_mutex_
     Preferences ad_prefs;
     if (!ad_prefs.begin(adaptive_grind::kPrefsNamespace, false)) {
         LOG_BLE("ERROR: Failed to open adaptive coast NVS namespace\n");
         return false;
     }
 
-    ad_prefs.putBool(adaptive_grind::kPrefKeyEnabled, adaptive_coast_state_.enabled);
-    ad_prefs.putFloat(adaptive_grind::kPrefKeyCoastMs, adaptive_coast_state_.learned_coast_time_ms);
-    ad_prefs.putFloat(adaptive_grind::kPrefKeyRefFlow, adaptive_coast_state_.reference_flow_gps);
-    ad_prefs.putUInt(adaptive_grind::kPrefKeySamples, adaptive_coast_state_.sample_count);
+    bool ok = true;
+    ok = ok && (ad_prefs.putBool(adaptive_grind::kPrefKeyAlgorithmOn, snapshot.algorithm_enabled) > 0);
+    ok = ok && (ad_prefs.putBool(adaptive_grind::kPrefKeyEnabled, snapshot.enabled) > 0);
+    ok = ok && (ad_prefs.putFloat(adaptive_grind::kPrefKeyCoastMs, snapshot.learned_coast_time_ms) == sizeof(float));
+    ok = ok && (ad_prefs.putFloat(adaptive_grind::kPrefKeyRefFlow, snapshot.reference_flow_gps) == sizeof(float));
+    ok = ok && (ad_prefs.putUInt(adaptive_grind::kPrefKeySamples, snapshot.sample_count) == sizeof(uint32_t));
     ad_prefs.end();
-    return true;
+    if (!ok) {
+        LOG_BLE("ERROR: Failed to persist adaptive coast state to NVS\n");
+    }
+    return ok;
+}
+
+void GrindController::set_adaptive_grind_enabled(bool enabled) {
+    {
+        const auto control_lock = lock_control();
+        adaptive_coast_state_.algorithm_enabled = enabled;
+    }
+    save_adaptive_coast_state();
 }
 
 void GrindController::set_adaptive_coast_enabled(bool enabled) {
-    const auto control_lock = lock_control();
-    adaptive_coast_state_.enabled = enabled;
+    {
+        const auto control_lock = lock_control();
+        adaptive_coast_state_.enabled = enabled;
+    }
     save_adaptive_coast_state();
 }
 
 void GrindController::reset_adaptive_coast() {
-    const auto control_lock = lock_control();
-    adaptive_coast_state_.reset_learned();
-    adaptive_coast_dirty_ = false;
+    {
+        const auto control_lock = lock_control();
+        adaptive_coast_state_.reset_learned();
+        pending_coast_valid_ = false;
+        adaptive_coast_dirty_ = false;
+    }
     save_adaptive_coast_state();
 }

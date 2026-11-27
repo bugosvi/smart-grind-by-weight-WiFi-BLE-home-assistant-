@@ -11,6 +11,7 @@ namespace adaptive_grind {
 // physics simulations can validate every change directly.
 
 static constexpr const char* kPrefsNamespace = "adgrind";
+static constexpr const char* kPrefKeyAlgorithmOn = "ad_on";
 static constexpr const char* kPrefKeyEnabled = "enabled";
 static constexpr const char* kPrefKeyCoastMs = "coast_ms";
 static constexpr const char* kPrefKeyRefFlow = "ref_flow";
@@ -18,29 +19,34 @@ static constexpr const char* kPrefKeySamples = "samples";
 
 static constexpr std::size_t kMaxNvsKeyLen = 15;
 static_assert(sizeof("adgrind") - 1 <= kMaxNvsKeyLen, "NVS namespace <= 15 chars");
+static_assert(sizeof("ad_on") - 1 <= kMaxNvsKeyLen, "NVS key <= 15 chars");
 static_assert(sizeof("enabled") - 1 <= kMaxNvsKeyLen, "NVS key <= 15 chars");
 static_assert(sizeof("coast_ms") - 1 <= kMaxNvsKeyLen, "NVS key <= 15 chars");
 static_assert(sizeof("ref_flow") - 1 <= kMaxNvsKeyLen, "NVS key <= 15 chars");
 static_assert(sizeof("samples") - 1 <= kMaxNvsKeyLen, "NVS key <= 15 chars");
 
-// Flow-start detection & progressive predictive window constants
-static constexpr uint32_t kFlowStartDetectionWindowMs = 250;
+// Flow-start detection & progressive predictive window constants.
+// HX711 runs at 10 SPS (100ms/sample), so flow-start detection requires a 500ms
+// window (5 samples) plus minimum net weight gain to reject motor-kick spikes.
+static constexpr uint32_t kFlowStartDetectionWindowMs = 500;
+static constexpr float kFlowStartMinDeltaG = 0.20f;
 static constexpr uint32_t kProgressiveFlowMinWindowMs = 500;
 static constexpr uint32_t kProgressiveFlowMaxWindowMs = 1500;
+static constexpr uint32_t kMinCoastLearnFlowWindowMs = 1000;
 
 // Coast time bounds (prevents cold/empty morning chute startup delay from
 // inflating post-stop coast prediction and forcing many tiny pulses)
 static constexpr float kEffectiveLatencyMinMs = 150.0f;
 static constexpr float kEffectiveLatencyMaxMs = 650.0f;
-static constexpr float kZeroShotCoastBufferMs = 75.0f;    // Safety margin when coast is unlearned
 static constexpr float kLearnedCoastMinMs = 100.0f;
 static constexpr float kLearnedCoastMaxMs = 900.0f;
-static constexpr float kLearnedCoastSafetyMargin = 1.12f; // 12% conservative undershoot buffer
-static constexpr float kCoastLearnAlpha = 0.30f;          // Gentle EMA across shots
-static constexpr float kFlowChangeResetRatio = 0.25f;     // >25% flow shift resets learned coast
+static constexpr float kLearnedCoastSafetyMargin = 1.12f;        // 12% conservative undershoot buffer
+static constexpr float kLearnedCoastQuantizationGuardMs = 100.0f; // 1 full HX711 sample period @ 10 SPS
+static constexpr float kCoastLearnAlpha = 0.30f;                 // Gentle EMA across shots
+static constexpr float kFlowChangeResetRatio = 0.25f;            // >25% flow shift resets learned coast
 
-// Within-shot adaptive pulse learning bounds
-static constexpr float kAdaptivePulseFlowMinGps = 0.60f;
+// Within-shot adaptive pulse learning bounds (clump-safe)
+static constexpr float kAdaptivePulseFlowMinGps = 0.85f;
 static constexpr float kAdaptivePulseFlowMaxGps = 3.00f;
 static constexpr float kAdaptivePulseSafetyFactor = 1.15f; // Higher est. flow -> shorter, safer pulse
 static constexpr float kAdaptivePulseAlpha = 0.50f;
@@ -48,14 +54,17 @@ static constexpr float kMinProductiveMsForFlowUpdate = 20.0f;
 static constexpr float kMinDeliveredGramsForFlowUpdate = 0.02f;
 static constexpr float kZeroDeliveryProductiveThresholdMs = 40.0f;
 static constexpr float kZeroDeliveryDecayFactor = 0.85f;
-static constexpr float kPulseTargetToleranceFraction = 0.25f; // Aim inside [target-tol, target] to avoid Zeno crawl
+// Aim halfway inside [target - tol, target] (15mg headroom > 10mg settling noise)
+// to prevent Zeno crawl while staying clump-safe against overshoot.
+static constexpr float kPulseTargetToleranceFraction = 0.50f;
 
 // Post-stop settling wait caps
 static constexpr float kPostPredictiveMaxCoastWaitMs = 650.0f;
 static constexpr float kPostPulseMaxCoastWaitMs = 300.0f;
 
 struct AdaptiveCoastState {
-    bool enabled = true;
+    bool algorithm_enabled = true;      // Master Kill-Switch: false = 1:1 stock upstream algorithm
+    bool enabled = true;                // Cross-shot coast learning enable
     float learned_coast_time_ms = 0.0f; // 0 = unlearned (pure zero-shot)
     float reference_flow_gps = 0.0f;
     uint32_t sample_count = 0;
@@ -119,27 +128,31 @@ inline float compute_motor_stop_target_weight(float measured_latency_ms,
         !should_reset_learned_coast(coast_state, current_flow_gps);
 
     if (can_use_learned) {
-        // Apply user's coast_ratio and conservative undershoot safety margin
+        // Apply user's coast_ratio, conservative undershoot margin, and 1 full 10 SPS
+        // HX711 sample period (100ms) so sampling quantization cannot cause overshoot.
         effective_coast_ms = std::clamp(
-            coast_state.learned_coast_time_ms * kLearnedCoastSafetyMargin * clamped_ratio,
+            (coast_state.learned_coast_time_ms * kLearnedCoastSafetyMargin +
+             kLearnedCoastQuantizationGuardMs) *
+                clamped_ratio,
             kLearnedCoastMinMs,
             kLearnedCoastMaxMs);
     } else {
-        // Pure zero-shot with latency clamping and explicit safety buffer so a
-        // cold/empty morning chute startup delay does not massively over-predict
-        // post-stop coast, while a fast warm startup still stops before overshoot.
-        const float safe_latency_ms = std::isfinite(measured_latency_ms)
-                                          ? std::clamp(measured_latency_ms + kZeroShotCoastBufferMs,
-                                                       kEffectiveLatencyMinMs,
-                                                       kEffectiveLatencyMaxMs)
-                                          : kEffectiveLatencyMinMs;
+        // Pure zero-shot with latency clamping so a cold/empty morning chute
+        // startup delay does not massively over-predict post-stop coast, plus a
+        // 50ms half-sample guard for 10 SPS HX711 quantization on fast coarse grinds.
+        const float safe_latency_ms =
+            std::isfinite(measured_latency_ms)
+                ? std::clamp(measured_latency_ms + 50.0f,
+                             kEffectiveLatencyMinMs,
+                             kEffectiveLatencyMaxMs)
+                : kEffectiveLatencyMinMs;
         effective_coast_ms = safe_latency_ms * clamped_ratio;
     }
 
     return (effective_coast_ms / 1000.0f) * current_flow_gps;
 }
 
-// Compute the pulse target error (grams) aiming slightly inside the acceptance
+// Compute the pulse target error (grams) aiming halfway inside the acceptance
 // band [target - tolerance, target]. Aiming at (target - tolerance) directly
 // causes a Zeno crawl where a conservative controller asymptotically approaches
 // the stopping threshold without crossing it.

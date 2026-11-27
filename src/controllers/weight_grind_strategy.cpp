@@ -49,11 +49,14 @@ int WeightGrindStrategy::progress_percent(const GrindSessionDescriptor&,
 
 float WeightGrindStrategy::get_clamped_pulse_flow_rate(const GrindController& controller) const {
     float flow_rate = controller.pulse_flow_rate;
+    const bool adaptive_on = controller.adaptive_coast_state_.algorithm_enabled;
+    const float min_gps = adaptive_on ? adaptive_grind::kAdaptivePulseFlowMinGps : GRIND_FLOW_RATE_MIN_SANE_GPS;
+    const float max_gps = adaptive_on ? adaptive_grind::kAdaptivePulseFlowMaxGps : GRIND_FLOW_RATE_MAX_SANE_GPS;
 
-    if (flow_rate < adaptive_grind::kAdaptivePulseFlowMinGps) {
-        flow_rate = GRIND_PULSE_FLOW_RATE_FALLBACK_GPS;
-    } else if (flow_rate > adaptive_grind::kAdaptivePulseFlowMaxGps) {
-        flow_rate = adaptive_grind::kAdaptivePulseFlowMaxGps;
+    if (!std::isfinite(flow_rate) || flow_rate < min_gps) {
+        flow_rate = adaptive_on ? min_gps : GRIND_PULSE_FLOW_RATE_FALLBACK_GPS;
+    } else if (flow_rate > max_gps) {
+        flow_rate = max_gps;
     }
 
     return flow_rate;
@@ -84,20 +87,32 @@ void WeightGrindStrategy::run_predictive_phase(GrindController& controller,
         return;
     }
 
+    const bool adaptive_on = controller.adaptive_coast_state_.algorithm_enabled;
+    const float predictive_delta_g = loop_data.current_weight - controller.predictive_start_weight_;
+
     if (!controller.flow_start_confirmed) {
-        float current_flow_rate =
+        const float current_flow_rate =
             controller.weight_sensor->get_flow_rate(adaptive_grind::kFlowStartDetectionWindowMs);
 
-        if (current_flow_rate >= GRIND_FLOW_DETECTION_THRESHOLD_GPS) {
+        // At 10 SPS (100ms/sample), require settled motor + 500ms flow window +
+        // real net weight gain (>= 0.20g) when adaptive mode is active so a single
+        // motor-kick transient can never false-confirm flow or disarm the watchdog.
+        const bool flow_confirmed = adaptive_on
+            ? (controller.grinder->is_motor_settled() &&
+               predictive_delta_g >= adaptive_grind::kFlowStartMinDeltaG &&
+               current_flow_rate >= GRIND_FLOW_DETECTION_THRESHOLD_GPS)
+            : (current_flow_rate >= GRIND_FLOW_DETECTION_THRESHOLD_GPS);
+
+        if (flow_confirmed) {
             controller.grind_latency_ms = loop_data.now - controller.phase_start_time;
             controller.flow_start_confirmed = true;
-            LOG_BLE("[PREDICTIVE] Flow start CONFIRMED! Latency: %.1fms, Flow: %.2fg/s\n",
-                    controller.grind_latency_ms, current_flow_rate);
+            controller.queue_log_message("[PREDICTIVE] Flow start CONFIRMED! Latency: %.1fms, Flow: %.2fg/s, dW: %.2fg\n",
+                                         controller.grind_latency_ms, current_flow_rate, predictive_delta_g);
         } else {
             const uint32_t predictive_elapsed_ms = loop_data.now - controller.phase_start_time;
             if (remote_safety::check_no_flow_watchdog(
                     predictive_elapsed_ms,
-                    loop_data.current_weight,
+                    predictive_delta_g,
                     controller.flow_start_confirmed,
                     controller.active_no_flow_timeout_ms_,
                     controller.active_no_flow_min_weight_g_)) {
@@ -108,24 +123,38 @@ void WeightGrindStrategy::run_predictive_phase(GrindController& controller,
     }
 
     if (controller.flow_start_confirmed) {
-        const uint32_t flow_start_time =
-            controller.phase_start_time + static_cast<uint32_t>(controller.grind_latency_ms);
-        const uint32_t elapsed_since_flow_ms =
-            (loop_data.now > flow_start_time) ? (loop_data.now - flow_start_time) : 0;
-        const uint32_t flow_window_ms =
-            adaptive_grind::compute_progressive_flow_window_ms(elapsed_since_flow_ms);
+        if (adaptive_on) {
+            const uint32_t flow_start_time =
+                controller.phase_start_time + static_cast<uint32_t>(controller.grind_latency_ms);
+            const uint32_t elapsed_since_flow_ms =
+                (loop_data.now > flow_start_time) ? (loop_data.now - flow_start_time) : 0;
+            const uint32_t flow_window_ms =
+                adaptive_grind::compute_progressive_flow_window_ms(elapsed_since_flow_ms);
 
-        if (flow_window_ms > 0) {
-            float current_flow_rate = controller.weight_sensor->get_flow_rate(flow_window_ms);
+            if (flow_window_ms > 0) {
+                const float current_flow_rate = controller.weight_sensor->get_flow_rate(flow_window_ms);
 
-            if (current_flow_rate > GRIND_FLOW_DETECTION_THRESHOLD_GPS) {
-                controller.last_predictive_flow_gps_ = current_flow_rate;
-                controller.motor_stop_target_weight =
-                    adaptive_grind::compute_motor_stop_target_weight(
-                        controller.grind_latency_ms,
-                        controller.get_coast_ratio(),
-                        current_flow_rate,
-                        controller.adaptive_coast_state_);
+                if (current_flow_rate > GRIND_FLOW_DETECTION_THRESHOLD_GPS) {
+                    controller.last_predictive_flow_gps_ = current_flow_rate;
+                    controller.last_predictive_flow_window_ms_ = flow_window_ms;
+                    controller.motor_stop_target_weight =
+                        adaptive_grind::compute_motor_stop_target_weight(
+                            controller.grind_latency_ms,
+                            controller.get_coast_ratio(),
+                            current_flow_rate,
+                            controller.adaptive_coast_state_);
+                }
+            }
+        } else {
+            // Exact 1:1 stock upstream predictive stop calculation
+            const uint32_t flow_rate_calc_window_ms = 1500;
+            if (loop_data.now > (controller.phase_start_time + controller.grind_latency_ms + flow_rate_calc_window_ms)) {
+                const float current_flow_rate = controller.weight_sensor->get_flow_rate(flow_rate_calc_window_ms);
+                if (current_flow_rate > GRIND_FLOW_DETECTION_THRESHOLD_GPS) {
+                    controller.motor_stop_target_weight =
+                        ((controller.grind_latency_ms * controller.get_coast_ratio()) /
+                         static_cast<float>(SYS_MS_PER_SECOND)) * current_flow_rate;
+                }
             }
         }
     }
@@ -146,43 +175,51 @@ void WeightGrindStrategy::run_pulse_decision_phase(GrindController& controller,
         return;
     }
 
+    const bool adaptive_on = controller.adaptive_coast_state_.algorithm_enabled;
+
+    // Guarantee every sample in the 500ms precision settling window was captured
+    // strictly AFTER entering PULSE_DECISION (never stale pre-pulse readings).
+    if (adaptive_on &&
+        (loop_data.now - controller.phase_start_time) < GRIND_SCALE_PRECISION_SETTLING_TIME_MS) {
+        return;
+    }
+
     float settled_weight;
     if (!controller.weight_sensor->check_settling_complete(GRIND_SCALE_PRECISION_SETTLING_TIME_MS, &settled_weight)) {
         return;
     }
 
-    // Once predictive phase settles (before first pulse), observe true post-stop coast
-    // to gently refine future repeat shots (auto-resets if flow rate regime changes).
-    if (controller.pulse_attempts == 0 && !controller.predictive_coast_learned_this_shot_) {
-        controller.predictive_coast_learned_this_shot_ = true;
-        if (adaptive_grind::update_learned_coast_from_predictive(
-                controller.adaptive_coast_state_,
-                controller.predictive_end_weight,
-                settled_weight,
-                controller.last_predictive_flow_gps_)) {
-            controller.adaptive_coast_dirty_ = true;
-            LOG_BLE("[ADAPTIVE] Coast learned: %.1fms (ref flow: %.2fg/s, n=%lu)\n",
-                    controller.adaptive_coast_state_.learned_coast_time_ms,
-                    controller.adaptive_coast_state_.reference_flow_gps,
-                    static_cast<unsigned long>(controller.adaptive_coast_state_.sample_count));
+    if (adaptive_on) {
+        // Stage a coast observation once predictive settles (committed ONLY if the
+        // shot completes successfully, and only when predictive flow window >= 1000ms).
+        if (controller.pulse_attempts == 0 && !controller.predictive_coast_learned_this_shot_) {
+            controller.predictive_coast_learned_this_shot_ = true;
+            if (controller.last_predictive_flow_window_ms_ >= adaptive_grind::kMinCoastLearnFlowWindowMs &&
+                controller.last_predictive_flow_gps_ >= 0.4f) {
+                controller.pending_coast_valid_ = true;
+                controller.pending_coast_end_g_ = controller.predictive_end_weight;
+                controller.pending_coast_settled_g_ = settled_weight;
+                controller.pending_coast_flow_gps_ = controller.last_predictive_flow_gps_;
+            }
+        } else if (controller.pulse_attempts > 0) {
+            const int last_idx = controller.pulse_attempts - 1;
+            if (last_idx >= 0 && last_idx < GRIND_MAX_PULSE_ATTEMPTS) {
+                controller.pulse_history[last_idx].end_weight = settled_weight;
+                const float delivered_g = settled_weight - controller.pulse_history[last_idx].start_weight;
+                const float prev_flow = controller.pulse_flow_rate;
+                controller.pulse_flow_rate = adaptive_grind::update_pulse_flow_estimate(
+                    controller.pulse_flow_rate,
+                    delivered_g,
+                    controller.pulse_history[last_idx].duration_ms,
+                    controller.get_motor_response_latency());
+                controller.queue_log_message("[ADAPTIVE] Pulse #%d delivered %.3fg in %.0fms -> pulse_flow %.2f -> %.2fg/s\n",
+                                             controller.pulse_attempts,
+                                             delivered_g,
+                                             controller.pulse_history[last_idx].duration_ms,
+                                             prev_flow,
+                                             controller.pulse_flow_rate);
+            }
         }
-    } else if (controller.pulse_attempts > 0) {
-        // Record actual post-pulse weight and adapt pulse flow within this shot
-        const int last_idx = controller.pulse_attempts - 1;
-        controller.pulse_history[last_idx].end_weight = settled_weight;
-        const float delivered_g = settled_weight - controller.pulse_history[last_idx].start_weight;
-        const float prev_flow = controller.pulse_flow_rate;
-        controller.pulse_flow_rate = adaptive_grind::update_pulse_flow_estimate(
-            controller.pulse_flow_rate,
-            delivered_g,
-            controller.pulse_history[last_idx].duration_ms,
-            controller.get_motor_response_latency());
-        LOG_BLE("[ADAPTIVE] Pulse #%d delivered %.3fg in %.0fms -> pulse_flow %.2f -> %.2fg/s\n",
-                controller.pulse_attempts,
-                delivered_g,
-                controller.pulse_history[last_idx].duration_ms,
-                prev_flow,
-                controller.pulse_flow_rate);
     }
 
     if (controller.target_weight - settled_weight < GRIND_ACCURACY_TOLERANCE_G ||
@@ -191,9 +228,12 @@ void WeightGrindStrategy::run_pulse_decision_phase(GrindController& controller,
         return;
     }
 
-    // Aim slightly inside [target - tolerance, target] to eliminate Zeno crawl
-    float error = adaptive_grind::compute_pulse_target_error(
-        controller.target_weight, settled_weight, GRIND_ACCURACY_TOLERANCE_G);
+    // In adaptive mode, aim halfway inside [target - tol, target] to eliminate Zeno crawl
+    // while keeping 15mg (> 10mg settling noise) headroom against clumps.
+    float error = adaptive_on
+        ? adaptive_grind::compute_pulse_target_error(
+              controller.target_weight, settled_weight, GRIND_ACCURACY_TOLERANCE_G)
+        : ((controller.target_weight - GRIND_ACCURACY_TOLERANCE_G) - settled_weight);
 
     controller.pulse_history[controller.pulse_attempts].start_weight = settled_weight;
     controller.pulse_history[controller.pulse_attempts].end_weight = settled_weight;
@@ -220,14 +260,23 @@ void WeightGrindStrategy::run_pulse_settling_phase(GrindController& controller,
         return;
     }
 
-    // Wait for coast clearance (shorter after correction pulses than after full predictive run),
-    // then hand off directly to PULSE_DECISION for a single 500ms precision settling check.
-    const uint32_t min_wait_ms = adaptive_grind::compute_settling_delay_ms(
-        controller.grind_latency_ms,
-        GRIND_MOTOR_SETTLING_TIME_MS,
-        controller.pulse_attempts);
+    if (controller.adaptive_coast_state_.algorithm_enabled) {
+        // Wait for coast clearance (shorter after correction pulses than after full predictive run),
+        // then hand off to PULSE_DECISION which enforces a full strictly-post-coast 500ms settling check.
+        const uint32_t min_wait_ms = adaptive_grind::compute_settling_delay_ms(
+            controller.grind_latency_ms,
+            GRIND_MOTOR_SETTLING_TIME_MS,
+            controller.pulse_attempts);
 
-    if (loop_data.now - controller.phase_start_time >= min_wait_ms) {
-        controller.switch_phase(GrindPhase::PULSE_DECISION, loop_data);
+        if (loop_data.now - controller.phase_start_time >= min_wait_ms) {
+            controller.switch_phase(GrindPhase::PULSE_DECISION, loop_data);
+        }
+    } else {
+        // Exact 1:1 stock upstream settling phase
+        if (loop_data.now - controller.phase_start_time >= controller.grind_latency_ms + GRIND_MOTOR_SETTLING_TIME_MS) {
+            if (controller.weight_sensor->check_settling_complete(GRIND_MOTOR_SETTLING_TIME_MS)) {
+                controller.switch_phase(GrindPhase::PULSE_DECISION, loop_data);
+            }
+        }
     }
 }

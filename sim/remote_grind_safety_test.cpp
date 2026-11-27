@@ -48,6 +48,15 @@ int main() {
     bad_cfg.wifi_tx_power_dbm = 25;  // above maximum
     assert(!validate_safety_config(bad_cfg));
 
+    // No-flow timeout: 0 (disabled) is valid; non-zero must be within [1500, 10000]
+    RemoteSafetyConfig noflow_cfg = cup_cfg;
+    noflow_cfg.no_flow_timeout_ms = 0;
+    assert(validate_safety_config(noflow_cfg));
+    noflow_cfg.no_flow_timeout_ms = 1000;  // below minimum non-zero
+    assert(!validate_safety_config(noflow_cfg));
+    noflow_cfg.no_flow_timeout_ms = 12000; // above maximum
+    assert(!validate_safety_config(noflow_cfg));
+
     // 3. Cup interlock: unstable scale rejected first
     assert(evaluate_cup_interlock(95.0f, 1.2f, cup_cfg) == CupInterlockStatus::SCALE_UNSTABLE);
     assert(std::strcmp(cup_interlock_reason(CupInterlockStatus::SCALE_UNSTABLE), "scale_unstable") == 0);

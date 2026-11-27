@@ -28,7 +28,7 @@ struct RemoteGrindOptions {
     bool is_remote = false;
     bool skip_purge_confirm = false;
     uint16_t max_grind_time_s = 0;         // 0 = use default GRIND_TIMEOUT_SEC
-    uint16_t no_flow_timeout_ms = 3000;    // 0 = disabled
+    uint16_t no_flow_timeout_ms = 0;       // 0 = disabled (remote grinds apply safety config)
     float no_flow_min_weight_g = 0.5f;
 };
 
@@ -195,13 +195,19 @@ private:
     // Active session safety overrides (for remote / automated grinds & No-Flow Watchdog)
     bool active_session_is_remote_ = false;
     uint16_t active_session_max_time_s_ = 0;
-    uint16_t active_no_flow_timeout_ms_ = 3000;
+    uint16_t active_no_flow_timeout_ms_ = 0;
     float active_no_flow_min_weight_g_ = 0.5f;
+    float predictive_start_weight_ = 0.0f;
 
     // Adaptive zero-shot + gentle cross-shot coast learning state
     adaptive_grind::AdaptiveCoastState adaptive_coast_state_;
     float last_predictive_flow_gps_ = 0.0f;
+    uint32_t last_predictive_flow_window_ms_ = 0;
     bool predictive_coast_learned_this_shot_ = false;
+    bool pending_coast_valid_ = false;
+    float pending_coast_end_g_ = 0.0f;
+    float pending_coast_settled_g_ = 0.0f;
+    float pending_coast_flow_gps_ = 0.0f;
     bool adaptive_coast_dirty_ = false;
 
 public:
@@ -301,11 +307,12 @@ public:
     void load_coast_ratio();
     bool save_coast_ratio(float value);
 
-    // Adaptive zero-shot coast learning accessors
+    // Adaptive zero-shot coast learning & algorithm Kill-Switch accessors
     adaptive_grind::AdaptiveCoastState get_adaptive_coast_state() const {
         const auto control_lock = lock_control();
         return adaptive_coast_state_;
     }
+    void set_adaptive_grind_enabled(bool enabled);
     void set_adaptive_coast_enabled(bool enabled);
     void reset_adaptive_coast();
     void load_adaptive_coast_state();
