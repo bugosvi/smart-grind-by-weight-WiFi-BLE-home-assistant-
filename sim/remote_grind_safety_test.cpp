@@ -7,7 +7,7 @@
 using namespace remote_safety;
 
 int main() {
-    // 1. Target weight sanity bounds (4.0g .. 30.0g)
+    // 1. Explicit remote target weight: 4.0g up to the configurable dose limit (default 30.0g)
     assert(!validate_remote_target_weight(3.9f));
     assert(validate_remote_target_weight(4.0f));
     assert(validate_remote_target_weight(10.0f));
@@ -15,6 +15,23 @@ int main() {
     assert(validate_remote_target_weight(30.0f));
     assert(!validate_remote_target_weight(30.1f));
     assert(!validate_remote_target_weight(NAN));
+
+    // A raised limit admits larger filter doses; the minimum never moves
+    assert(validate_remote_target_weight(45.0f, 60.0f));
+    assert(!validate_remote_target_weight(60.1f, 60.0f));
+    assert(!validate_remote_target_weight(3.9f, 60.0f));
+    assert(!validate_remote_target_weight(18.0f, NAN));
+
+    RemoteSafetyConfig dose_cfg;
+    assert(dose_cfg.remote_max_weight_g == kDefaultRemoteMaxWeightG);
+    dose_cfg.remote_max_weight_g = kRemoteMaxWeightLimitG;
+    assert(validate_safety_config(dose_cfg));
+    dose_cfg.remote_max_weight_g = kRemoteMaxWeightLimitG + 0.5f;
+    assert(!validate_safety_config(dose_cfg));
+    dose_cfg.remote_max_weight_g = kMinRemoteTargetWeightG - 0.5f;
+    assert(!validate_safety_config(dose_cfg));
+    dose_cfg.remote_max_weight_g = NAN;
+    assert(!validate_safety_config(dose_cfg));
 
     // 2. Default config must be valid (opt-in cup interlock, unrestricted TX power)
     RemoteSafetyConfig cup_cfg;
@@ -132,6 +149,15 @@ int main() {
     assert(patch.has_wifi_tx_power_dbm && patch.wifi_tx_power_dbm == 13);
     assert(patch.has_adaptive_coast_enabled && patch.adaptive_coast_enabled);
     assert(patch.has_reset_adaptive_coast && patch.reset_adaptive_coast);
+
+    assert(parse_safety_json_patch("{\"remote_max_weight_g\": 45.5}", patch));
+    assert(patch.has_remote_max_weight_g && std::fabs(patch.remote_max_weight_g - 45.5f) < 0.01f);
+    assert(patch.any_safety_config_field() && !patch.any_adaptive_field());
+    RemoteSafetyConfig patched_cfg;
+    patch.apply_to_config(patched_cfg);
+    assert(std::fabs(patched_cfg.remote_max_weight_g - 45.5f) < 0.01f);
+    assert(validate_safety_config(patched_cfg));
+    assert(!parse_safety_json_patch("{\"remote_max_weight_g\": \"45\"}", patch));
 
     // Malformed, empty, or misspelled JSON keys must be rejected (never silent 200 no-op)
     assert(!parse_safety_json_patch("{}", patch));

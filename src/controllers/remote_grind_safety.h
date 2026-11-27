@@ -23,6 +23,7 @@ inline constexpr const char* kKeyEmptyCal = "empty_cal";
 inline constexpr const char* kKeyCupMinG = "cup_min_g";
 inline constexpr const char* kKeyCupMaxG = "cup_max_g";
 inline constexpr const char* kKeyMaxTimeS = "rem_max_s";
+inline constexpr const char* kKeyMaxWeightG = "rem_max_g";
 inline constexpr const char* kKeyNoFlowMs = "noflow_ms";
 inline constexpr const char* kKeyNoFlowG = "noflow_g";
 inline constexpr const char* kKeyWifiTxDbm = "tx_dbm";
@@ -33,13 +34,18 @@ static_assert(sizeof("empty_cal") - 1 <= 15, "NVS key exceeds 15 chars");
 static_assert(sizeof("cup_min_g") - 1 <= 15, "NVS key exceeds 15 chars");
 static_assert(sizeof("cup_max_g") - 1 <= 15, "NVS key exceeds 15 chars");
 static_assert(sizeof("rem_max_s") - 1 <= 15, "NVS key exceeds 15 chars");
+static_assert(sizeof("rem_max_g") - 1 <= 15, "NVS key exceeds 15 chars");
 static_assert(sizeof("noflow_ms") - 1 <= 15, "NVS key exceeds 15 chars");
 static_assert(sizeof("noflow_g") - 1 <= 15, "NVS key exceeds 15 chars");
 static_assert(sizeof("tx_dbm") - 1 <= 15, "NVS key exceeds 15 chars");
 
 // Hard safety sanity bounds
+// An explicit target weight sent with a remote start must lie between the fixed
+// minimum and the owner-configurable remote dose limit. Starts that use the
+// selected on-device profile are not capped: the owner configured that dose.
 inline constexpr float kMinRemoteTargetWeightG = 4.0f;
-inline constexpr float kMaxRemoteTargetWeightG = 30.0f;
+inline constexpr float kDefaultRemoteMaxWeightG = 30.0f;
+inline constexpr float kRemoteMaxWeightLimitG = 120.0f;
 inline constexpr float kMaxInterlockRangeG = 1.0f;
 inline constexpr float kMinCupThresholdG = 5.0f;
 inline constexpr float kMaxCupThresholdG = 950.0f;
@@ -59,6 +65,7 @@ struct RemoteSafetyConfig {
     float cup_min_weight_g = 50.0f;        // e.g. 50-80g for dosing cup, 350-450g for portafilter
     float cup_max_weight_g = 600.0f;       // e.g. empty_vessel_weight + 15g to prevent double-grind
     uint16_t remote_max_grind_time_s = 25; // Stricter timeout for unattended remote grinds
+    float remote_max_weight_g = kDefaultRemoteMaxWeightG; // Largest explicit remote target weight
     uint16_t no_flow_timeout_ms = 3000;    // 3s No-Flow Watchdog in PREDICTIVE phase
     float no_flow_min_weight_g = 0.5f;     // Must gain >= 0.5g before no_flow_timeout_ms
     uint8_t wifi_tx_power_dbm = 0;         // 0 = unrestricted stock default; 8..20 caps Wi-Fi TX power
@@ -88,15 +95,20 @@ inline const char* cup_interlock_reason(CupInterlockStatus status) {
     return "unknown";
 }
 
-inline bool validate_remote_target_weight(float target_weight_g) {
-    return std::isfinite(target_weight_g) &&
+inline bool validate_remote_target_weight(float target_weight_g,
+                                          float remote_max_weight_g = kDefaultRemoteMaxWeightG) {
+    return std::isfinite(target_weight_g) && std::isfinite(remote_max_weight_g) &&
            target_weight_g >= kMinRemoteTargetWeightG &&
-           target_weight_g <= kMaxRemoteTargetWeightG;
+           target_weight_g <= remote_max_weight_g;
 }
 
 inline bool validate_safety_config(const RemoteSafetyConfig& cfg) {
     if (!std::isfinite(cfg.cup_min_weight_g) || !std::isfinite(cfg.cup_max_weight_g) ||
-        !std::isfinite(cfg.no_flow_min_weight_g)) {
+        !std::isfinite(cfg.no_flow_min_weight_g) || !std::isfinite(cfg.remote_max_weight_g)) {
+        return false;
+    }
+    if (cfg.remote_max_weight_g < kMinRemoteTargetWeightG ||
+        cfg.remote_max_weight_g > kRemoteMaxWeightLimitG) {
         return false;
     }
     if (cfg.cup_min_weight_g < kMinCupThresholdG || cfg.cup_min_weight_g > kMaxCupThresholdG) {
@@ -189,6 +201,8 @@ struct SafetyPatch {
     float cup_max_weight_g = 0.0f;
     bool has_remote_max_grind_time_s = false;
     uint16_t remote_max_grind_time_s = 0;
+    bool has_remote_max_weight_g = false;
+    float remote_max_weight_g = 0.0f;
     bool has_no_flow_timeout_ms = false;
     uint16_t no_flow_timeout_ms = 0;
     bool has_no_flow_min_weight_g = false;
@@ -204,7 +218,7 @@ struct SafetyPatch {
 
     bool any_safety_config_field() const {
         return has_require_cup_on_remote || has_cup_min_weight_g || has_cup_max_weight_g ||
-               has_remote_max_grind_time_s || has_no_flow_timeout_ms ||
+               has_remote_max_grind_time_s || has_remote_max_weight_g || has_no_flow_timeout_ms ||
                has_no_flow_min_weight_g || has_wifi_tx_power_dbm;
     }
 
@@ -221,6 +235,7 @@ struct SafetyPatch {
         if (has_cup_min_weight_g) cfg.cup_min_weight_g = cup_min_weight_g;
         if (has_cup_max_weight_g) cfg.cup_max_weight_g = cup_max_weight_g;
         if (has_remote_max_grind_time_s) cfg.remote_max_grind_time_s = remote_max_grind_time_s;
+        if (has_remote_max_weight_g) cfg.remote_max_weight_g = remote_max_weight_g;
         if (has_no_flow_timeout_ms) cfg.no_flow_timeout_ms = no_flow_timeout_ms;
         if (has_no_flow_min_weight_g) cfg.no_flow_min_weight_g = no_flow_min_weight_g;
         if (has_wifi_tx_power_dbm) cfg.wifi_tx_power_dbm = wifi_tx_power_dbm;
@@ -336,6 +351,9 @@ inline bool parse_safety_json_patch(const char* json, SafetyPatch& out) {
             if (!detail::parse_json_uint_token(p, UINT16_MAX, v)) return false;
             out.remote_max_grind_time_s = static_cast<uint16_t>(v);
             out.has_remote_max_grind_time_s = true;
+        } else if (std::strcmp(key, "remote_max_weight_g") == 0) {
+            if (!detail::parse_json_float_token(p, out.remote_max_weight_g)) return false;
+            out.has_remote_max_weight_g = true;
         } else if (std::strcmp(key, "no_flow_timeout_ms") == 0) {
             uint32_t v = 0;
             if (!detail::parse_json_uint_token(p, UINT16_MAX, v)) return false;

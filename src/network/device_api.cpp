@@ -321,16 +321,15 @@ bool DeviceApi::process_commands() {
                     break;
                 }
                 float target_weight = profile.profiles[profile.current_profile].weight;
+                // Only an explicit override is checked against the remote dose
+                // limit; the selected profile keeps the dose its owner configured.
                 if (command.has_target_weight) {
-                    if (!remote_safety::validate_remote_target_weight(command.target_weight)) {
+                    if (!remote_safety::validate_remote_target_weight(command.target_weight,
+                                                                      safety.remote_max_weight_g)) {
                         send_ack(command, "start", false, "invalid_weight");
                         break;
                     }
                     target_weight = command.target_weight;
-                } else if (mode == GrindMode::WEIGHT &&
-                           !remote_safety::validate_remote_target_weight(target_weight)) {
-                    send_ack(command, "start", false, "invalid_weight");
-                    break;
                 }
                 // Clients may request stricter cup enforcement, never weaken device-level safety.
                 const bool require_cup = safety.require_cup_on_remote ||
@@ -713,6 +712,12 @@ void DeviceApi::configure_settings_routes(AsyncWebServer* server) {
                         }
                         patch.remote_max_grind_time_s = static_cast<uint16_t>(parsed);
                         patch.has_remote_max_grind_time_s = true;
+                    } else if (key == "remote_max_weight_g") {
+                        if (!parse_strict_float(val, patch.remote_max_weight_g)) {
+                            request->send(400, "application/json", "{\"error\":\"Invalid remote_max_weight_g\"}");
+                            return;
+                        }
+                        patch.has_remote_max_weight_g = true;
                     } else if (key == "no_flow_timeout_ms") {
                         uint32_t parsed = 0;
                         if (!parse_strict_uint32(val, UINT16_MAX, parsed)) {
@@ -1292,6 +1297,7 @@ void DeviceApi::load_safety_config() {
         loaded.cup_min_weight_g = prefs.getFloat(remote_safety::kKeyCupMinG, loaded.cup_min_weight_g);
         loaded.cup_max_weight_g = prefs.getFloat(remote_safety::kKeyCupMaxG, loaded.cup_max_weight_g);
         loaded.remote_max_grind_time_s = prefs.getUShort(remote_safety::kKeyMaxTimeS, loaded.remote_max_grind_time_s);
+        loaded.remote_max_weight_g = prefs.getFloat(remote_safety::kKeyMaxWeightG, loaded.remote_max_weight_g);
         loaded.no_flow_timeout_ms = prefs.getUShort(remote_safety::kKeyNoFlowMs, loaded.no_flow_timeout_ms);
         loaded.no_flow_min_weight_g = prefs.getFloat(remote_safety::kKeyNoFlowG, loaded.no_flow_min_weight_g);
         loaded.wifi_tx_power_dbm = prefs.getUChar(remote_safety::kKeyWifiTxDbm, loaded.wifi_tx_power_dbm);
@@ -1317,6 +1323,7 @@ bool DeviceApi::save_safety_config(const remote_safety::RemoteSafetyConfig& cfg)
     ok = ok && (prefs.putFloat(remote_safety::kKeyCupMinG, cfg.cup_min_weight_g) > 0);
     ok = ok && (prefs.putFloat(remote_safety::kKeyCupMaxG, cfg.cup_max_weight_g) > 0);
     ok = ok && (prefs.putUShort(remote_safety::kKeyMaxTimeS, cfg.remote_max_grind_time_s) > 0);
+    ok = ok && (prefs.putFloat(remote_safety::kKeyMaxWeightG, cfg.remote_max_weight_g) > 0);
     ok = ok && (prefs.putUShort(remote_safety::kKeyNoFlowMs, cfg.no_flow_timeout_ms) > 0);
     ok = ok && (prefs.putFloat(remote_safety::kKeyNoFlowG, cfg.no_flow_min_weight_g) > 0);
     ok = ok && (prefs.putUChar(remote_safety::kKeyWifiTxDbm, cfg.wifi_tx_power_dbm) > 0);
@@ -1370,7 +1377,7 @@ String DeviceApi::safety_json() {
              "{\"api\":\"v1\",\"require_cup_on_remote\":%s,"
              "\"empty_holder_calibrated\":%s,\"empty_holder_raw\":%ld,"
              "\"cup_min_weight_g\":%.1f,\"cup_max_weight_g\":%.1f,"
-             "\"remote_max_grind_time_s\":%u,"
+             "\"remote_max_grind_time_s\":%u,\"remote_max_weight_g\":%.1f,"
              "\"no_flow_timeout_ms\":%u,\"no_flow_min_weight_g\":%.2f,"
              "\"wifi_tx_power_dbm\":%u,"
              "\"adaptive_grind_enabled\":%s,"
@@ -1382,6 +1389,7 @@ String DeviceApi::safety_json() {
              static_cast<long>(cfg.empty_holder_raw),
              finite_or_zero(cfg.cup_min_weight_g), finite_or_zero(cfg.cup_max_weight_g),
              static_cast<unsigned>(cfg.remote_max_grind_time_s),
+             finite_or_zero(cfg.remote_max_weight_g),
              static_cast<unsigned>(cfg.no_flow_timeout_ms),
              finite_or_zero(cfg.no_flow_min_weight_g),
              static_cast<unsigned>(cfg.wifi_tx_power_dbm),

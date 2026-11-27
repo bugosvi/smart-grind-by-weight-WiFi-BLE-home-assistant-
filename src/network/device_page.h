@@ -539,6 +539,7 @@ textarea{resize:vertical;min-height:92px;line-height:1.45}
             <label class="field"><span>Min cup weight (g)</span><input id="cupMinWeight" class="input num" type="number" min="5" max="940" step="1"></label>
             <label class="field"><span>Max cup weight (g)</span><input id="cupMaxWeight" class="input num" type="number" min="10" max="950" step="1"></label>
             <label class="field"><span>Remote max grind time (s)</span><input id="remoteMaxTime" class="input num" type="number" min="10" max="60" step="1"></label>
+            <label class="field"><span>Remote max dose (g, automations)</span><input id="remoteMaxWeight" class="input num" type="number" min="4" max="120" step="0.5"></label>
             <label class="field"><span>No-flow watchdog (ms, 0=off)</span><input id="noFlowTimeout" class="input num" type="number" min="0" max="10000" step="250"></label>
             <label class="field"><span>No-flow min gain (g)</span><input id="noFlowMinWeight" class="input num" type="number" min="0.1" max="3.0" step="0.1"></label>
           </div>
@@ -1313,7 +1314,8 @@ $('saveSafetyBtn').onclick=async()=>{
     const cupMin=parseFloat($('cupMinWeight').value),cupMax=parseFloat($('cupMaxWeight').value);
     const maxTime=parseInt($('remoteMaxTime').value,10),noFlowMs=parseInt($('noFlowTimeout').value,10);
     const noFlowG=parseFloat($('noFlowMinWeight').value),txDbm=parseInt($('wifiTxPower').value,10);
-    if(![cupMin,cupMax,maxTime,noFlowMs,noFlowG,txDbm].every(Number.isFinite)){
+    const maxDose=parseFloat($('remoteMaxWeight').value);
+    if(![cupMin,cupMax,maxTime,maxDose,noFlowMs,noFlowG,txDbm].every(Number.isFinite)){
       throw new Error('Enter valid numbers for all safety fields');
     }
     const body={
@@ -1335,6 +1337,7 @@ $('saveSafetyBtn').onclick=async()=>{
   finally{$('saveSafetyBtn').disabled=false;}
 };
 $('resetCoastBtn').onclick=async()=>{
+  $('remoteMaxWeight').value=s.remote_max_weight_g;
   if(!confirm('Reset learned coast time back to factory baseline?'))return;
   try{
     const updated=await api('/api/v1/safety',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({reset_adaptive_coast:true})});
@@ -1371,6 +1374,7 @@ function renderOtaStatus(s){
 async function refreshStatus(){
   try{
     const s=await api('/api/v1/status');state.deviceStatus=s;
+      remote_max_weight_g:maxDose,
     $('firmware').textContent=`${s.firmware.version} · build ${s.firmware.build}`;
     $('hardware').textContent=`${s.device.model} (${s.device.hardware_revision.toUpperCase()})`;
     $('deviceId').textContent=s.device.id;
