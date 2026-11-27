@@ -1,0 +1,698 @@
+<!DOCTYPE html>
+<html dir="rtl" lang="he">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Waveshare 1.64" AMOLED — Portafilter Animation Preview</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+</head>
+<body class="bg-transparent text-[var(--foreground)] antialiased p-0 m-0">
+  <div class="py-2 flex flex-col sm:flex-row items-center sm:items-start justify-center gap-4 min-w-0">
+    <!-- Faithful 280x456 Waveshare 1.64" AMOLED Display Canvas -->
+    <div class="shrink-0 flex flex-col items-center gap-1.5">
+      <div class="p-1.5 rounded-[22px] border border-[var(--border)] bg-[var(--card)] shadow-sm">
+        <canvas
+          id="amoled"
+          width="280"
+          height="456"
+          class="block rounded-[16px]"
+          style="width: 215px; height: 350px;"
+        ></canvas>
+      </div>
+      <span class="text-xs text-[var(--muted-foreground)] font-mono">280×456 AMOLED · LVGL Vector</span>
+    </div>
+
+    <!-- Compact Interactive Controls -->
+    <div class="flex-1 w-full max-w-[270px] space-y-3 min-w-0 text-xs">
+      <div class="flex items-center justify-between gap-2 pb-2 border-b border-[var(--card-border)]">
+        <span class="font-semibold text-sm text-[var(--foreground)]">תצוגת פורטפילטר (LVGL)</span>
+        <button
+          id="btnPlay"
+          class="px-3 py-1.5 rounded-lg bg-[var(--primary)] text-[var(--primary-foreground)] font-medium hover:opacity-90 active:scale-95 transition cursor-pointer"
+        >▶ הרץ שוט מלא</button>
+      </div>
+
+      <!-- Phase quick buttons -->
+      <div class="space-y-1.5">
+        <div class="text-[var(--muted-foreground)]">בדיקת שלב ידנית:</div>
+        <div class="grid grid-cols-2 gap-1.5">
+          <button data-phase="TARING" class="phase-btn px-2 py-1.5 rounded-md border border-[var(--border)] bg-[var(--card)] hover:border-[var(--primary)] transition cursor-pointer">Taring</button>
+          <button data-phase="PREDICTIVE" class="phase-btn px-2 py-1.5 rounded-md border border-[var(--border)] bg-[var(--card)] hover:border-[var(--primary)] transition cursor-pointer">טחינה רציפה</button>
+          <button data-phase="PULSE" class="phase-btn px-2 py-1.5 rounded-md border border-[var(--border)] bg-[var(--card)] hover:border-[var(--primary)] transition cursor-pointer">פולס תיקון</button>
+          <button data-phase="COMPLETED" class="phase-btn px-2 py-1.5 rounded-md border border-[var(--border)] bg-[var(--card)] hover:border-[var(--primary)] transition cursor-pointer">סיום (18.0g)</button>
+        </div>
+      </div>
+
+      <!-- Manual Weight Slider -->
+      <div class="space-y-1 pt-1 border-t border-[var(--card-border)]">
+        <div class="flex items-center justify-between text-[var(--muted-foreground)]">
+          <span>משקל נוכחי</span>
+          <span id="weightReadout" class="font-mono tabular-nums text-[var(--foreground)] font-semibold">0.0g / 18.0g</span>
+        </div>
+        <input
+          id="weightSlider"
+          type="range"
+          min="0"
+          max="180"
+          value="0"
+          class="w-full accent-[var(--primary)] cursor-pointer"
+        />
+      </div>
+
+      <!-- Live Telemetry Summary -->
+      <div class="pt-2 border-t border-[var(--card-border)] grid grid-cols-2 gap-2 font-mono">
+        <div class="p-2 rounded-md bg-[var(--card)] border border-[var(--card-border)]">
+          <div class="text-[var(--muted-foreground)]">שלב</div>
+          <div id="statPhase" class="text-[var(--foreground)] font-semibold mt-0.5">PREDICTIVE</div>
+        </div>
+        <div class="p-2 rounded-md bg-[var(--card)] border border-[var(--card-border)]">
+          <div class="text-[var(--muted-foreground)]">זרימה</div>
+          <div id="statFlow" class="text-[var(--foreground)] font-semibold mt-0.5">1.6 g/s</div>
+        </div>
+      </div>
+
+      <div class="text-[var(--muted-foreground)] leading-relaxed">
+        וקטורי טהור (ללא תמונות/GIF): <span class="font-mono text-[var(--foreground)]">~5KB Flash</span>, רץ ב-30 FPS על Core 1 בלי שום השפעה על השקילה.
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('amoled');
+    const ctx = canvas.getContext('2d');
+    const W = 280, H = 456;
+
+    const btnPlay = document.getElementById('btnPlay');
+    const weightSlider = document.getElementById('weightSlider');
+    const weightReadout = document.getElementById('weightReadout');
+    const statPhase = document.getElementById('statPhase');
+    const statFlow = document.getElementById('statFlow');
+    const phaseBtns = document.querySelectorAll('.phase-btn');
+
+    const TARGET_G = 18.0;
+    const CX = 140; // Exact horizontal center of 280px AMOLED screen
+
+    let state = {
+      mode: 'auto', // 'auto' | 'manual'
+      phase: 'PREDICTIVE',
+      weight: 0.0,
+      flow: 1.6,
+      pulseCount: 0,
+      t: 0,
+      simTime: 0,
+      doneGlow: 0,
+      tareAngle: 0,
+      lastSampleT: -1,
+    };
+
+    // Live chart history (weight + flow rate g/s, matching add_chart_data_point)
+    let chartHistory = [];
+
+    // Coffee ground particles (18 lightweight LVGL dots/rects, emerging strictly from chute mouth)
+    const COLORS = ['#5C3317', '#7A4622', '#9C6134', '#BA7B47', '#4A2610'];
+    const particles = Array.from({ length: 18 }, (_, i) => ({
+      x: CX,
+      y: 125,
+      vy: 2.2 + Math.random() * 1.6,
+      vx: 0,
+      size: 2 + (i % 2),
+      color: COLORS[i % COLORS.length],
+      active: false,
+    }));
+
+    function resetParticle(p, spread, flowSpeedScale) {
+      // Spawn strictly inside the dark chute mouth (CX - 5 .. CX + 5)
+      p.x = CX + (Math.random() - 0.5) * spread - (p.size * 0.5);
+      p.y = 123 + Math.random() * 4;
+      p.vy = (1.6 + Math.random() * 1.4) * flowSpeedScale;
+      p.vx = (Math.random() - 0.5) * 0.22;
+      p.active = true;
+    }
+
+    function startFullShot() {
+      state.mode = 'auto';
+      state.simTime = 0;
+      state.lastSampleT = -1;
+      state.weight = 0;
+      state.flow = 0;
+      state.pulseCount = 0;
+      state.phase = 'TARING';
+      state.doneGlow = 0;
+      chartHistory = [];
+      particles.forEach(p => { p.active = false; });
+    }
+
+    btnPlay.addEventListener('click', startFullShot);
+
+    phaseBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const ph = btn.dataset.phase;
+        state.mode = 'manual';
+        state.phase = ph;
+        if (ph === 'TARING') { state.weight = 0; state.flow = 0; state.pulseCount = 0; }
+        if (ph === 'PREDICTIVE') { state.weight = Math.max(2.0, Math.min(state.weight, 15.0)); state.flow = 1.6; state.pulseCount = 0; }
+        if (ph === 'PULSE') { state.weight = 17.6; state.flow = 0.85; state.pulseCount = 1; }
+        if (ph === 'COMPLETED') { state.weight = TARGET_G; state.flow = 0; state.pulseCount = 2; state.doneGlow = 1; }
+        weightSlider.value = Math.round(state.weight * 10);
+      });
+    });
+
+    weightSlider.addEventListener('input', () => {
+      state.mode = 'manual';
+      state.weight = parseInt(weightSlider.value, 10) / 10;
+      if (state.weight >= TARGET_G) {
+        state.phase = 'COMPLETED';
+        state.flow = 0;
+      } else if (state.weight === 0) {
+        state.phase = 'TARING';
+        state.flow = 0;
+      } else if (state.weight > 17.2) {
+        state.phase = 'PULSE';
+        state.flow = 0.8;
+      } else {
+        state.phase = 'PREDICTIVE';
+        state.flow = 1.6;
+      }
+    });
+
+    function roundRect(x, y, w, h, r) {
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.arcTo(x + w, y, x + w, y + h, r);
+      ctx.arcTo(x + w, y + h, x, y + h, r);
+      ctx.arcTo(x, y + h, x, y, r);
+      ctx.arcTo(x, y, x + w, y, r);
+      ctx.closePath();
+    }
+
+    function stepSimulation(dt) {
+      state.t += dt;
+      state.tareAngle += dt * 5.2;
+
+      if (state.mode === 'auto') {
+        state.simTime += dt;
+        const s = state.simTime;
+        // Compressed demo timeline (~9.5s loop):
+        // 0.0-1.1s TARING | 1.1-5.6s PREDICTIVE (0 -> 17.45g) | 5.6-6.3s SETTLING (coast -> 17.68g)
+        // 6.3-6.65s PULSE #1 (-> 17.88g) | 6.65-7.1s SETTLING | 7.1-7.35s PULSE #2 (-> 17.99g)
+        // 7.35-10.2s COMPLETED | then auto-restart
+        if (s < 1.1) {
+          state.phase = 'TARING';
+          state.weight = 0.0;
+          state.flow = 0.0;
+          state.pulseCount = 0;
+        } else if (s < 5.6) {
+          state.phase = 'PREDICTIVE';
+          const frac = (s - 1.1) / 4.5;
+          state.weight = frac * 17.45;
+          state.flow = 1.55 + Math.sin(s * 6) * 0.08;
+        } else if (s < 6.3) {
+          state.phase = 'SETTLING';
+          const frac = (s - 5.6) / 0.7;
+          state.weight = 17.45 + (1 - Math.pow(1 - frac, 2)) * 0.23;
+          state.flow = Math.max(0, 0.4 * (1 - frac));
+        } else if (s < 6.65) {
+          state.phase = 'PULSE';
+          state.pulseCount = 1;
+          const frac = (s - 6.3) / 0.35;
+          state.weight = 17.68 + frac * 0.20;
+          state.flow = 0.82;
+        } else if (s < 7.15) {
+          state.phase = 'SETTLING';
+          state.weight = 17.88;
+          state.flow = 0.0;
+        } else if (s < 7.42) {
+          state.phase = 'PULSE';
+          state.pulseCount = 2;
+          const frac = (s - 7.15) / 0.27;
+          state.weight = 17.88 + frac * 0.11;
+          state.flow = 0.75;
+        } else if (s < 10.2) {
+          state.phase = 'COMPLETED';
+          state.weight = 17.99;
+          state.flow = 0.0;
+          state.doneGlow = Math.min(1, state.doneGlow + dt * 3);
+        } else {
+          startFullShot();
+        }
+        weightSlider.value = Math.round(state.weight * 10);
+      } else {
+        if (state.phase === 'COMPLETED') {
+          state.doneGlow = Math.min(1, state.doneGlow + dt * 4);
+        } else {
+          state.doneGlow = Math.max(0, state.doneGlow - dt * 4);
+        }
+      }
+
+      // Record live chart samples (~12Hz) during active shot
+      if (state.mode === 'auto' && state.simTime >= 1.1 && state.simTime <= 7.6) {
+        if (state.simTime - state.lastSampleT >= 0.08) {
+          state.lastSampleT = state.simTime;
+          chartHistory.push({ w: state.weight, f: state.flow });
+          if (chartHistory.length > 90) chartHistory.shift();
+        }
+      }
+
+      // Update falling coffee ground particles — speed & density driven directly by live flow_rate (g/s)
+      const emitting = (state.flow > 0.15) && (state.phase === 'PREDICTIVE' || state.phase === 'PULSE');
+      const moundSurfaceY = getMoundSurfaceY(Math.min(1, state.weight / TARGET_G));
+      const flowNorm = Math.max(0, Math.min(1.5, state.flow / 1.6));
+      const emitChance = Math.min(0.95, 0.25 + flowNorm * 0.65);
+      const flowSpeedScale = 0.7 + flowNorm * 0.65;
+      const spread = state.phase === 'PREDICTIVE' ? 10 : 7;
+
+      particles.forEach(p => {
+        if (!p.active) {
+          if (emitting && Math.random() < emitChance) {
+            resetParticle(p, spread, flowSpeedScale);
+          }
+          return;
+        }
+        p.vy += 0.18;
+        p.y += p.vy;
+        p.x += p.vx;
+        if (p.y >= moundSurfaceY) {
+          if (emitting) {
+            resetParticle(p, spread, flowSpeedScale);
+          } else {
+            p.active = false;
+          }
+        }
+      });
+
+      // Update sidebar readouts
+      weightReadout.textContent = `${state.weight.toFixed(1)}g / ${TARGET_G.toFixed(1)}g`;
+      statPhase.textContent = state.phase === 'PULSE' ? `PULSE #${Math.max(1, state.pulseCount)}` : state.phase;
+      statFlow.textContent = `${state.flow.toFixed(1)} g/s`;
+    }
+
+    function getMoundSurfaceY(progress) {
+      const basketBottomY = 274;
+      const rimY = 244;
+      const fillFrac = Math.min(1, progress / 0.78);
+      const fillY = basketBottomY - fillFrac * (basketBottomY - rimY);
+      const domeHeight = Math.max(0, (progress - 0.30) / 0.70) * 20;
+      return fillY - domeHeight * 0.5;
+    }
+
+    function drawAMOLED() {
+      // Pure AMOLED true black
+      ctx.fillStyle = '#000000';
+      ctx.fillRect(0, 0, W, H);
+
+      const progress = Math.max(0, Math.min(1, state.weight / TARGET_G));
+      const isDone = state.phase === 'COMPLETED';
+      const isTaring = state.phase === 'TARING';
+      const isActiveFlow = (state.phase === 'PREDICTIVE' || state.phase === 'PULSE');
+
+      // Subtle completion radial glow behind portafilter
+      if (state.doneGlow > 0.01) {
+        const grad = ctx.createRadialGradient(CX, 244, 12, CX, 244, 115);
+        grad.addColorStop(0, `rgba(0, 185, 80, ${0.26 * state.doneGlow})`);
+        grad.addColorStop(1, 'rgba(0, 185, 80, 0)');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 120, W, 220);
+      }
+
+      // --- TOP HEADER ---
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#D4D4D4';
+      ctx.font = '700 22px system-ui, -apple-system, sans-serif';
+      ctx.fillText('DOUBLE', W / 2, 34);
+
+      ctx.fillStyle = '#888888';
+      ctx.font = '500 14px system-ui, -apple-system, sans-serif';
+      ctx.fillText(`Target: ${TARGET_G.toFixed(1)}g`, W / 2, 56);
+
+      // Phase Status Pill
+      let pillText = state.phase;
+      let pillColor = '#FF5722';
+      if (state.phase === 'TARING') { pillText = 'TARING...'; pillColor = '#00AAFF'; }
+      else if (state.phase === 'PREDICTIVE') { pillText = 'GRINDING'; pillColor = '#FF3D00'; }
+      else if (state.phase === 'SETTLING') { pillText = 'SETTLING'; pillColor = '#CC8800'; }
+      else if (state.phase === 'PULSE') { pillText = `PULSE #${Math.max(1, state.pulseCount)}`; pillColor = '#FF9800'; }
+      else if (state.phase === 'COMPLETED') { pillText = 'READY'; pillColor = '#00C853'; }
+
+      roundRect(W / 2 - 54, 67, 108, 22, 11);
+      ctx.fillStyle = 'rgba(255,255,255,0.08)';
+      ctx.fill();
+      ctx.strokeStyle = pillColor;
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      ctx.fillStyle = pillColor;
+      ctx.font = '700 11px system-ui, -apple-system, sans-serif';
+      ctx.fillText(pillText, W / 2, 82);
+
+      // --- EUREKA CHUTE NOZZLE (dead-center at CX=140) ---
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(CX - 18, 102);
+      ctx.lineTo(CX + 18, 102);
+      ctx.lineTo(CX + 12, 124);
+      ctx.lineTo(CX - 12, 124);
+      ctx.closePath();
+      const chuteGrad = ctx.createLinearGradient(CX - 18, 102, CX + 18, 102);
+      chuteGrad.addColorStop(0, '#30343A');
+      chuteGrad.addColorStop(0.45, '#767D87');
+      chuteGrad.addColorStop(1, '#262A30');
+      ctx.fillStyle = chuteGrad;
+      ctx.fill();
+      ctx.strokeStyle = '#9AA3AE';
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+
+      // Chute opening shadow (CX - 9 .. CX + 9)
+      ctx.fillStyle = '#120B07';
+      roundRect(CX - 9, 121, 18, 4, 2);
+      ctx.fill();
+      ctx.restore();
+
+      // --- COFFEE GROUNDS STREAM (strictly aligned with chute mouth) ---
+      if (isActiveFlow) {
+        const streamAlpha = state.phase === 'PREDICTIVE' ? 0.30 : 0.18;
+        const mY = getMoundSurfaceY(progress);
+        const sGrad = ctx.createLinearGradient(CX, 124, CX, mY);
+        sGrad.addColorStop(0, `rgba(148, 92, 48, ${streamAlpha})`);
+        sGrad.addColorStop(1, `rgba(104, 58, 26, ${streamAlpha * 0.45})`);
+        ctx.fillStyle = sGrad;
+        ctx.beginPath();
+        ctx.moveTo(CX - 5, 124);
+        ctx.lineTo(CX + 5, 124);
+        ctx.lineTo(CX + 9, mY);
+        ctx.lineTo(CX - 9, mY);
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      // Falling crisp ground particles (pure LVGL rectangles)
+      particles.forEach(p => {
+        if (!p.active) return;
+        ctx.fillStyle = p.color;
+        ctx.fillRect(Math.round(p.x), Math.round(p.y), p.size, p.size + 1);
+      });
+
+      // Sleek 58mm basket geometry dead-center at CX=140 (60px wide x 30px tall)
+      const rimY = 244;
+      const basketBottomY = 274;
+      const topHalfW = 30;   // basket top: 110 .. 170 (60px)
+      const botHalfW = 24;   // basket bottom: 116 .. 164 (48px)
+
+      // --- GROWING COFFEE MOUND (strictly inside basket walls & neatly crowning inner rim) ---
+      if (progress > 0.01) {
+        const fillFrac = Math.min(1, progress / 0.78);
+        const fillY = basketBottomY - fillFrac * (basketBottomY - rimY);
+        const domeHeight = Math.max(0, (progress - 0.30) / 0.70) * 20;
+        const peakY = fillY - domeHeight;
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(CX - topHalfW + 2, 185);
+        ctx.lineTo(CX + topHalfW - 2, 185);
+        ctx.lineTo(CX + topHalfW - 2, rimY);
+        ctx.lineTo(CX + botHalfW - 2, basketBottomY - 4);
+        ctx.quadraticCurveTo(CX + botHalfW - 3, basketBottomY, CX + botHalfW - 7, basketBottomY);
+        ctx.lineTo(CX - botHalfW + 7, basketBottomY);
+        ctx.quadraticCurveTo(CX - botHalfW + 3, basketBottomY, CX - botHalfW + 2, basketBottomY - 4);
+        ctx.lineTo(CX - topHalfW + 2, rimY);
+        ctx.closePath();
+        ctx.clip();
+
+        const moundGrad = ctx.createLinearGradient(CX, peakY, CX, basketBottomY);
+        moundGrad.addColorStop(0, '#BC7E4A');
+        moundGrad.addColorStop(0.38, '#8A5229');
+        moundGrad.addColorStop(1, '#4A2610');
+
+        ctx.beginPath();
+        ctx.moveTo(CX - topHalfW, basketBottomY + 2);
+        ctx.lineTo(CX - topHalfW, fillY);
+        ctx.quadraticCurveTo(CX, peakY - 9, CX + topHalfW, fillY);
+        ctx.lineTo(CX + topHalfW, basketBottomY + 2);
+        ctx.closePath();
+        ctx.fillStyle = moundGrad;
+        ctx.fill();
+
+        // Subtle texture speckles strictly inside mound
+        ctx.fillStyle = 'rgba(225, 170, 115, 0.25)';
+        for (let i = 0; i < 10; i++) {
+          const sx = (CX - 20) + ((i * 17) % 40);
+          const sy = peakY + 8 + ((i * 11) % Math.max(8, Math.round(basketBottomY - peakY - 12)));
+          if (sy < basketBottomY - 3) {
+            ctx.fillRect(sx, sy, 2, 2);
+          }
+        }
+        ctx.restore();
+      }
+
+      // --- AUTHENTIC ITALIAN ESPRESSO PORTAFILTER ---
+      ctx.save();
+
+      // 1. Sleek Ergonomic Portafilter Handle (~88px long, subtle 3.2 deg angle, E61 1:1.45 ratio)
+      ctx.save();
+      ctx.translate(CX + topHalfW - 1, 253);
+      ctx.rotate(0.055); // Subtle ~3.2 deg natural downward espresso handle tilt
+
+      // Polished chrome neck stem connecting head to handle
+      const neckGrad = ctx.createLinearGradient(0, -5.5, 0, 5.5);
+      neckGrad.addColorStop(0, '#E8EEF5');
+      neckGrad.addColorStop(0.45, '#9DA6B2');
+      neckGrad.addColorStop(1, '#4C525C');
+      ctx.beginPath();
+      ctx.moveTo(-2, -5.8);
+      ctx.lineTo(13, -4);
+      ctx.lineTo(13, 4);
+      ctx.lineTo(-2, 5.8);
+      ctx.closePath();
+      ctx.fillStyle = neckGrad;
+      ctx.fill();
+
+      // Chrome ferrule ring (collar)
+      roundRect(12, -6, 6, 12, 2);
+      ctx.fillStyle = '#D2DAE4';
+      ctx.fill();
+      ctx.strokeStyle = '#6A727E';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      // Sculpted tapered Italian walnut-wood ergonomic handle
+      const woodGrad = ctx.createLinearGradient(18, -10, 18, 10);
+      woodGrad.addColorStop(0, '#7A4A28');
+      woodGrad.addColorStop(0.28, '#5E341A');
+      woodGrad.addColorStop(0.68, '#3B1E0E');
+      woodGrad.addColorStop(1, '#231007');
+      ctx.beginPath();
+      ctx.moveTo(18, -5);
+      ctx.bezierCurveTo(38, -6, 62, -9.5, 81, -8.8);
+      ctx.quadraticCurveTo(89, -8.2, 89, 0);
+      ctx.quadraticCurveTo(89, 8.2, 81, 8.8);
+      ctx.bezierCurveTo(62, 9.5, 38, 6, 18, 5);
+      ctx.closePath();
+      ctx.fillStyle = woodGrad;
+      ctx.fill();
+      ctx.strokeStyle = '#8F5B36';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      // Subtle glossy wood highlight along top curve
+      ctx.beginPath();
+      ctx.moveTo(22, -3);
+      ctx.bezierCurveTo(42, -4.5, 63, -6.8, 79, -6.2);
+      ctx.strokeStyle = 'rgba(235, 190, 145, 0.30)';
+      ctx.lineWidth = 1.3;
+      ctx.stroke();
+
+      // Polished chrome end-cap (pommel)
+      ctx.beginPath();
+      ctx.arc(84, 0, 8, -Math.PI * 0.42, Math.PI * 0.42);
+      ctx.lineTo(84, 0);
+      ctx.closePath();
+      const capGrad = ctx.createLinearGradient(83, -7.5, 83, 7.5);
+      capGrad.addColorStop(0, '#EFF3F8');
+      capGrad.addColorStop(0.5, '#9BA4B0');
+      capGrad.addColorStop(1, '#4C525C');
+      ctx.fillStyle = capGrad;
+      ctx.fill();
+      ctx.restore();
+
+      // 2. Classic Dual Espresso Spouts underneath the head
+      const spoutGrad = ctx.createLinearGradient(CX - 15, 275, CX + 15, 290);
+      spoutGrad.addColorStop(0, '#B8C0CB');
+      spoutGrad.addColorStop(0.5, '#6C737E');
+      spoutGrad.addColorStop(1, '#434850');
+      ctx.fillStyle = spoutGrad;
+      roundRect(CX - 7, 275, 14, 7, 2.5);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(CX - 6, 279);
+      ctx.quadraticCurveTo(CX - 15, 279, CX - 16, 288);
+      ctx.lineTo(CX - 11, 289);
+      ctx.quadraticCurveTo(CX - 10, 283.5, CX - 4, 283.5);
+      ctx.lineTo(CX + 4, 283.5);
+      ctx.quadraticCurveTo(CX + 10, 283.5, CX + 11, 289);
+      ctx.lineTo(CX + 16, 288);
+      ctx.quadraticCurveTo(CX + 15, 279, CX + 6, 279);
+      ctx.closePath();
+      ctx.fill();
+
+      // 3. Portafilter Head / Cutaway Stainless Basket Shell
+      ctx.beginPath();
+      ctx.moveTo(CX - topHalfW, rimY);
+      ctx.lineTo(CX - botHalfW, basketBottomY - 4);
+      ctx.quadraticCurveTo(CX - botHalfW + 2, basketBottomY + 1.5, CX - botHalfW + 7, basketBottomY + 1.5);
+      ctx.lineTo(CX + botHalfW - 7, basketBottomY + 1.5);
+      ctx.quadraticCurveTo(CX + botHalfW - 2, basketBottomY + 1.5, CX + botHalfW, basketBottomY - 4);
+      ctx.lineTo(CX + topHalfW, rimY);
+      ctx.strokeStyle = isDone ? '#00C853' : '#C5CCD6';
+      ctx.lineWidth = 2.6;
+      ctx.stroke();
+
+      // 4. Locking Ears (bayonet lugs on left & right of portafilter rim)
+      ctx.fillStyle = '#9BA4B0';
+      roundRect(CX - topHalfW - 8, rimY - 1, 7.5, 4.5, 1.8);
+      ctx.fill();
+      roundRect(CX + topHalfW + 0.5, rimY - 1, 7.5, 4.5, 1.8);
+      ctx.fill();
+
+      // 5. Brushed Stainless Top Flange Rim
+      const rimGrad = ctx.createLinearGradient(CX - topHalfW - 2.5, rimY, CX + topHalfW + 2.5, rimY);
+      rimGrad.addColorStop(0, '#6B727D');
+      rimGrad.addColorStop(0.32, '#EDF1F7');
+      rimGrad.addColorStop(0.68, '#9EA7B3');
+      rimGrad.addColorStop(1, '#585F69');
+      roundRect(CX - topHalfW - 2.5, rimY - 3, (topHalfW + 2.5) * 2, 6, 3);
+      ctx.fillStyle = rimGrad;
+      ctx.fill();
+      ctx.restore();
+
+      // Taring spinner inside basket
+      if (isTaring) {
+        ctx.save();
+        ctx.translate(CX, 259);
+        ctx.rotate(state.tareAngle);
+        ctx.beginPath();
+        ctx.arc(0, 0, 9, 0, Math.PI * 1.4);
+        ctx.strokeStyle = '#00AAFF';
+        ctx.lineWidth = 2.6;
+        ctx.lineCap = 'round';
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      // --- LIVE WEIGHT & FLOW READOUT ---
+      ctx.textAlign = 'center';
+      ctx.fillStyle = isDone ? '#00E676' : '#FFFFFF';
+      ctx.font = '700 34px system-ui, -apple-system, sans-serif';
+      ctx.fillText(isTaring ? '---' : `${state.weight.toFixed(1)}g`, W / 2, 326);
+
+      // --- LIVE MINI-CHART (Weight + Flow g/s, like Nerdy Chart!) ---
+      const cx = 22, cy = 336, cw = 236, ch = 56;
+      ctx.save();
+      roundRect(cx, cy, cw, ch, 8);
+      ctx.fillStyle = '#0D1014';
+      ctx.fill();
+      ctx.strokeStyle = '#242930';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      // Target weight dashed line near top of chart
+      const targetY = cy + 9;
+      ctx.beginPath();
+      ctx.setLineDash([3, 3]);
+      ctx.moveTo(cx + 6, targetY);
+      ctx.lineTo(cx + cw - 6, targetY);
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.22)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Tiny inline legend: Weight (g) + Flow (g/s)
+      ctx.font = '600 9px system-ui, -apple-system, sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillStyle = isDone ? '#00E676' : '#FF5722';
+      ctx.fillText('● g', cx + 7, cy + 12);
+      ctx.fillStyle = '#00AAFF';
+      ctx.fillText(`● ${state.flow.toFixed(1)} g/s`, cx + 30, cy + 12);
+
+      // Build display series (uses live chartHistory during auto shot, or synthetic curve when scrubbing slider)
+      let series = chartHistory;
+      if (state.mode === 'manual' && progress > 0) {
+        const pts = Math.max(2, Math.round(progress * 45));
+        series = Array.from({ length: pts }, (_, i) => {
+          const frac = i / Math.max(1, pts - 1);
+          const w = frac * state.weight;
+          const f = (state.phase === 'COMPLETED' && i > pts - 4) ? 0 : (frac < 0.9 ? 1.58 : state.flow);
+          return { w, f };
+        });
+      }
+
+      if (series.length >= 2) {
+        const maxSlots = Math.max(60, series.length);
+        const plotL = cx + 6;
+        const plotW = cw - 12;
+        const plotB = cy + ch - 5;
+        const plotH = ch - 15;
+
+        // 1. Flow rate curve (Cyan, scaled 0..2.4 g/s)
+        ctx.beginPath();
+        series.forEach((pt, idx) => {
+          const px = plotL + (idx / (maxSlots - 1)) * plotW;
+          const py = plotB - Math.min(1, pt.f / 2.4) * plotH;
+          if (idx === 0) ctx.moveTo(px, py);
+          else ctx.lineTo(px, py);
+        });
+        ctx.strokeStyle = 'rgba(0, 170, 255, 0.75)';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+
+        // 2. Weight curve (Orange -> Green on done) with subtle fill
+        ctx.beginPath();
+        series.forEach((pt, idx) => {
+          const px = plotL + (idx / (maxSlots - 1)) * plotW;
+          const py = plotB - Math.min(1, pt.w / TARGET_G) * plotH;
+          if (idx === 0) ctx.moveTo(px, py);
+          else ctx.lineTo(px, py);
+        });
+        ctx.strokeStyle = isDone ? '#00E676' : '#FF3D00';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+
+        // Soft fill under weight curve
+        const lastX = plotL + ((series.length - 1) / (maxSlots - 1)) * plotW;
+        ctx.lineTo(lastX, plotB);
+        ctx.lineTo(plotL, plotB);
+        ctx.closePath();
+        const fillGrad = ctx.createLinearGradient(0, cy + 10, 0, plotB);
+        fillGrad.addColorStop(0, isDone ? 'rgba(0, 230, 118, 0.22)' : 'rgba(255, 61, 0, 0.22)');
+        fillGrad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        ctx.fillStyle = fillGrad;
+        ctx.fill();
+      }
+      ctx.restore();
+
+      // Bottom action button (matches Smart Grind CANCEL / OK bar)
+      roundRect(40, 402, 200, 40, 14);
+      ctx.fillStyle = isDone ? '#00AA00' : '#262626';
+      ctx.fill();
+      ctx.strokeStyle = isDone ? '#00E676' : '#444444';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      ctx.fillStyle = '#FFFFFF';
+      ctx.font = '700 16px system-ui, -apple-system, sans-serif';
+      ctx.fillText(isDone ? 'OK' : 'CANCEL', W / 2, 428);
+    }
+
+    let lastTs = performance.now();
+    function loop(ts) {
+      const dt = Math.min(0.05, (ts - lastTs) / 1000);
+      lastTs = ts;
+      stepSimulation(dt);
+      drawAMOLED();
+      requestAnimationFrame(loop);
+    }
+
+    startFullShot();
+    requestAnimationFrame(loop);
+  </script>
+</body>
+</html>

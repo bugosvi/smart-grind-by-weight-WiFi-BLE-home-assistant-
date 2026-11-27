@@ -1,0 +1,1134 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>מדריך פירוק והרכבה 3D | Smart Grind-by-Weight</title>
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Google Fonts: Heebo & JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet" />
+
+  <!-- Three.js Import Map -->
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+
+  <style>
+    * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: #0b0f17;
+      color: #e2e8f0;
+      font-family: 'Heebo', sans-serif;
+      user-select: none;
+    }
+    .font-mono-tech { font-family: 'JetBrains Mono', monospace; }
+    .glass {
+      background: rgba(15, 23, 42, 0.86);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(148, 163, 184, 0.18);
+    }
+    input[type="range"].cad-slider {
+      -webkit-appearance: none;
+      appearance: none;
+      height: 6px;
+      background: #1e293b;
+      border-radius: 9999px;
+      outline: none;
+    }
+    input[type="range"].cad-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: #38bdf8;
+      border: 2px solid #0f172a;
+      cursor: pointer;
+      box-shadow: 0 0 8px rgba(56, 189, 248, 0.6);
+    }
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: rgba(15, 23, 42, 0.4); }
+    ::-webkit-scrollbar-thumb { background: rgba(100, 116, 139, 0.6); border-radius: 9999px; }
+  </style>
+</head>
+<body class="flex flex-col h-[100dvh] w-screen overflow-hidden">
+
+  <!-- Main 3D Viewport (Takes ~90%+ of screen) -->
+  <main class="relative flex-1 w-full overflow-hidden">
+    <div id="canvasContainer" class="w-full h-full touch-none cursor-grab active:cursor-grabbing"></div>
+
+    <!-- Top-Right Compact Floating Toggle Button (Details Panel is CLOSED by default) -->
+    <div class="absolute top-3 right-3 z-20 flex flex-col items-start gap-2 max-w-[calc(100vw-1.5rem)] sm:max-w-sm pointer-events-none">
+      <button id="toggleDetailsBtn"
+        class="pointer-events-auto glass hover:bg-slate-800/95 text-white px-3.5 py-2 rounded-full text-xs sm:text-sm font-bold shadow-xl flex items-center gap-2 border border-sky-500/40 transition active:scale-95 cursor-pointer">
+        <span id="stepBadgePill" class="px-2 py-0.5 rounded-full bg-sky-500/25 text-sky-300 font-mono-tech text-[11px]">1/12</span>
+        <span id="toggleDetailsText">הצג פירוט</span>
+        <svg id="toggleChevron" class="w-4 h-4 text-sky-400 transition-transform duration-200" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+        </svg>
+      </button>
+
+      <!-- Collapsible Details Drawer (HIDDEN BY DEFAULT) -->
+      <section id="detailsPanel"
+        class="hidden pointer-events-auto glass rounded-2xl p-3.5 w-[calc(100vw-1.5rem)] sm:w-96 max-h-[72dvh] overflow-y-auto shadow-2xl space-y-3">
+
+        <!-- Phase & Step Header -->
+        <div class="flex items-center justify-between gap-2">
+          <span id="phaseBadge" class="px-2 py-0.5 rounded-md text-[11px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/35">
+            שלב א׳: פירוק המטחנה
+          </span>
+          <span id="partTag" class="text-[10px] font-mono-tech text-slate-400">STOCK GRINDER</span>
+        </div>
+
+        <!-- Step Title & Description -->
+        <div>
+          <h1 id="detailTitle" class="text-sm sm:text-base font-bold text-white leading-snug"></h1>
+          <p id="detailDesc" class="text-xs text-slate-300 leading-relaxed mt-1"></p>
+        </div>
+
+        <!-- Hardware / Screws -->
+        <div id="hardwareBox" class="p-2 rounded-xl bg-slate-900/80 border border-slate-700/60 text-[11px] text-slate-200">
+          <span class="font-bold text-sky-300">חומרה וברגים: </span>
+          <span id="hardwareText"></span>
+        </div>
+
+        <!-- Mechanical Tip -->
+        <div id="tipBox" class="p-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-[11px] text-amber-200">
+          <span class="font-bold text-amber-300">טיפ מכני: </span>
+          <span id="tipText"></span>
+        </div>
+
+        <!-- Camera Presets -->
+        <div class="pt-2 border-t border-slate-700/60">
+          <div class="text-[11px] font-semibold text-slate-400 mb-1.5">זוויות מצלמה מהירות</div>
+          <div class="grid grid-cols-2 gap-1.5">
+            <button data-cam="wide" class="cam-btn px-2.5 py-1.5 rounded-xl bg-sky-500/20 text-sky-300 border border-sky-500/40 text-xs font-medium hover:bg-sky-500/30 transition cursor-pointer">מבט מלא (רחוק)</button>
+            <button data-cam="rear" class="cam-btn px-2.5 py-1.5 rounded-xl bg-slate-800 text-slate-200 border border-slate-700 text-xs font-medium hover:bg-slate-700 transition cursor-pointer">מבט אחורי (בורג תגית)</button>
+            <button data-cam="front" class="cam-btn px-2.5 py-1.5 rounded-xl bg-slate-800 text-slate-200 border border-slate-700 text-xs font-medium hover:bg-slate-700 transition cursor-pointer">חזית</button>
+            <button data-cam="t70" class="cam-btn px-2.5 py-1.5 rounded-xl bg-slate-800 text-amber-300 border border-slate-700 text-xs font-medium hover:bg-slate-700 transition cursor-pointer">תקריב חיישן T70</button>
+          </div>
+        </div>
+
+        <!-- Exploded View Slider -->
+        <div class="pt-2 border-t border-slate-700/60">
+          <div class="flex items-center justify-between text-[11px] mb-1">
+            <span class="text-slate-300 font-semibold">תצוגת פיצוץ (Exploded View)</span>
+            <span id="explodePct" class="font-mono-tech text-sky-300">0%</span>
+          </div>
+          <input id="explodeSlider" type="range" min="0" max="100" value="0" class="cad-slider w-full" />
+        </div>
+
+        <!-- X-Ray Toggle & STL Inspector -->
+        <div class="grid grid-cols-2 gap-2 pt-1">
+          <button id="xrayBtn" class="px-2.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-600/60 text-xs font-semibold transition cursor-pointer">
+            מצב רנטגן (X-Ray)
+          </button>
+          <button id="openStlBtn" class="px-2.5 py-2 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/35 text-xs font-semibold transition cursor-pointer">
+            בדוק קובץ STL משלך
+          </button>
+        </div>
+
+        <!-- Quick Step Jump List (1-12) -->
+        <div class="pt-2 border-t border-slate-700/60">
+          <div class="flex items-center justify-between mb-1.5">
+            <span class="text-[11px] font-semibold text-slate-400">קפיצה מהירה לשלב</span>
+            <label class="flex items-center gap-1 text-[11px] text-slate-300 cursor-pointer">
+              <input id="autoCamCheck" type="checkbox" checked class="accent-sky-500 cursor-pointer" />
+              <span>מצלמה אוטומטית</span>
+            </label>
+          </div>
+          <div id="stepJumpGrid" class="grid grid-cols-6 gap-1"></div>
+        </div>
+      </section>
+    </div>
+
+    <!-- Subtle Top-Left Legend Pill (Desktop only, unobtrusive) -->
+    <div class="hidden lg:flex items-center gap-3 absolute top-3 left-3 z-10 glass rounded-full px-3.5 py-1.5 text-[11px] text-slate-300">
+      <span class="flex items-center gap-1"><i class="w-2.5 h-2.5 rounded-full bg-teal-400 inline-block"></i>מתאם מסך</span>
+      <span class="flex items-center gap-1"><i class="w-2.5 h-2.5 rounded-full bg-indigo-400 inline-block"></i>Back Plate</span>
+      <span class="flex items-center gap-1"><i class="w-2.5 h-2.5 rounded-full bg-slate-300 inline-block"></i>חיישן T70</span>
+      <span class="flex items-center gap-1"><i class="w-2.5 h-2.5 rounded-full bg-orange-400 inline-block"></i>Cover Plate</span>
+      <span class="flex items-center gap-1"><i class="w-2.5 h-2.5 rounded-full bg-emerald-400 inline-block"></i>מחזיק כוסית</span>
+      <span class="flex items-center gap-1"><i class="w-2.5 h-2.5 rounded-full bg-rose-400 inline-block"></i>כיסויי ברגים</span>
+    </div>
+  </main>
+
+  <!-- Very Slim, Minimal Bottom Navigation Bar -->
+  <footer class="glass z-20 px-2.5 sm:px-4 py-2 border-t border-slate-700/50 shrink-0">
+    <div class="max-w-5xl mx-auto flex items-center justify-between gap-2">
+      <button id="prevBtn" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-600/50 text-xs sm:text-sm font-semibold transition active:scale-95 shrink-0 cursor-pointer">
+        קודם
+      </button>
+
+      <div id="slimTitle" class="flex-1 text-center text-xs sm:text-sm font-bold text-white truncate px-1">
+        1/12 • מצב התחלתי – מטחנה מורכבת
+      </div>
+
+      <button id="playBtn" class="px-3 py-1.5 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold text-xs sm:text-sm transition active:scale-95 shrink-0 cursor-pointer flex items-center gap-1">
+        <span id="playIcon">▶</span>
+        <span id="playLabel">נגן</span>
+      </button>
+
+      <button id="nextBtn" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-600/50 text-xs sm:text-sm font-semibold transition active:scale-95 shrink-0 cursor-pointer">
+        הבא
+      </button>
+    </div>
+  </footer>
+
+  <!-- STL Inspector Modal Overlay -->
+  <div id="stlModal" class="fixed inset-0 z-50 bg-slate-950/85 backdrop-blur-sm hidden items-center justify-center p-3 sm:p-5">
+    <div class="glass rounded-2xl w-full max-w-2xl h-[78dvh] flex flex-col overflow-hidden shadow-2xl border border-slate-600/50">
+      <div class="px-4 py-3 border-b border-slate-700/60 flex items-center justify-between">
+        <div>
+          <h2 class="text-sm sm:text-base font-bold text-white">בודק קבצי STL בתלת-ממד</h2>
+          <p class="text-[11px] text-slate-400">טען קובץ <code class="font-mono-tech text-emerald-400">.stl</code> מהמכשיר כדי לסובב ולבדוק מידות</p>
+        </div>
+        <button id="closeStlBtn" class="w-8 h-8 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 flex items-center justify-center cursor-pointer">✕</button>
+      </div>
+
+      <div id="stlDropZone" class="relative flex-1 bg-slate-950 overflow-hidden">
+        <div id="stlCanvasHost" class="w-full h-full touch-none"></div>
+
+        <div id="stlEmpty" class="absolute inset-0 flex flex-col items-center justify-center p-6 text-center pointer-events-none">
+          <p class="text-sm font-bold text-white mb-1">גרור קובץ STL לכאן או בחר מהמכשיר</p>
+          <p class="text-xs text-slate-400 mb-4">תומך ב-Binary ו-ASCII STL</p>
+          <label class="pointer-events-auto px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs cursor-pointer transition">
+            בחר קובץ .STL
+            <input id="stlFileInput" type="file" accept=".stl" class="hidden" />
+          </label>
+        </div>
+
+        <div id="stlBar" class="hidden absolute bottom-3 left-3 right-3 glass rounded-xl px-3 py-2 flex flex-wrap items-center justify-between gap-2 text-xs">
+          <div class="flex items-center gap-2 truncate">
+            <span id="stlName" class="font-mono-tech font-bold text-emerald-300 truncate"></span>
+            <span id="stlSize" class="font-mono-tech text-slate-300"></span>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <button id="stlWireBtn" class="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-200 border border-slate-600/50 cursor-pointer">Wireframe</button>
+            <label class="px-2.5 py-1 rounded-lg bg-emerald-500/20 text-emerald-300 border border-emerald-500/35 cursor-pointer">
+              קובץ אחר
+              <input id="stlFileInputAlt" type="file" accept=".stl" class="hidden" />
+            </label>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main Three.js Application -->
+  <script type="module">
+    import * as THREE from 'three';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import { STLLoader } from 'three/addons/loaders/STLLoader.js';
+
+    // =========================================================================
+    // 1. 12 STEPS DEFINITION (Phase 1: Disassembly 1-6 | Phase 2: Assembly 7-12)
+    // =========================================================================
+    const STEPS = [
+      // PHASE 1: FACTORY DISASSEMBLY
+      {
+        num: 1, phase: 1, tag: 'STOCK GRINDER',
+        title: 'מצב התחלתי – מטחנה מורכבת',
+        desc: 'מטחנת Eureka Mignon Specialità במצבה המקורי מהמפעל, כולל מיכל הפולים, המכסה העליון, המסך המקורי ומזלג הפורטפילטר המתכתי.',
+        hardware: 'בטיחות: נתק את המטחנה מהחשמל לפני תחילת הפירוק.',
+        tip: 'אפשר לסובב את המודל ב-360° באצבע או בעכבר, ולעבור לשלב הבא מהסרגל התחתון.',
+        camPos: [34, 26, 48], camTarget: [0, 16, 2]
+      },
+      {
+        num: 2, phase: 1, tag: 'BEAN HOPPER',
+        title: 'הסרת מיכל הפולים',
+        desc: 'סגור את תריס הפולים ומשוך את מיכל הפולים השקוף ישר כלפי מעלה עד שיתנתק מצוואר המטחנה.',
+        hardware: 'ללא ברגים — שליפה ישירה כלפי מעלה.',
+        tip: 'אם יש פולים במיכל, ודא שהתריס התחתון סגור היטב לפני השליפה.',
+        camPos: [34, 30, 46], camTarget: [0, 19, 1]
+      },
+      {
+        num: 3, phase: 1, tag: 'REAR BADGE & SCREW',
+        title: 'הסרת התגית האחורית ובורג המכסה',
+        desc: 'בגב המטחנה, שלוף בעדינות את תגית הלוגו של Eureka והברג החוצה את בורג הפיליפס המסתתר מאחוריה.',
+        hardware: '1× בורג פיליפס אחורי מקורי.',
+        tip: 'השתמש בכלי פלסטיק דק כדי לשלוף את התגית מבלי לשרוט את גוף המטחנה.',
+        camPos: [-24, 27, -38], camTarget: [0, 21, -4]
+      },
+      {
+        num: 4, phase: 1, tag: 'TOP COVER',
+        title: 'הסרת המכסה העליון',
+        desc: 'לאחר שחרור הבורג האחורי, הרם את המכסה העליון של המטחנה כלפי מעלה כדי לשחרר את הנעילה של חיפוי החזית.',
+        hardware: 'הרמה ישירה כלפי מעלה.',
+        tip: 'אין צורך לפרק את חוגת הטחינה — היא נשארת מחוברת לגוף הפנימי.',
+        camPos: [30, 29, 42], camTarget: [0, 20, 2]
+      },
+      {
+        num: 5, phase: 1, tag: 'ORIGINAL FORK',
+        title: 'פירוק מזלג הפורטפילטר המקורי',
+        desc: 'הברג החוצה את הבורג התחתון בחזית המטחנה ומשוך את מזלג הפורטפילטר המתכתי קדימה כדי לפנות את אזור העיגון.',
+        hardware: '1× בורג מזלג מקורי (שמור אותו לשלב 10!).',
+        tip: 'הבורג המקורי של המזלג ישמש אותנו בהמשך לנעילת ה-Back Plate וה-Cover Plate.',
+        camPos: [22, 14, 36], camTarget: [0, 9.5, 7]
+      },
+      {
+        num: 6, phase: 1, tag: 'FRONT NOSE & SCREEN',
+        title: 'הסרת חיפוי החזית והמסך המקורי',
+        desc: 'החלק את חיפוי החזית (ה״אף״) קדימה ומעלה, ושחרר את יחידת המסך המקורית מתוך המסגרת העליונה.',
+        hardware: 'שליפת חיפוי החזית והמסך המקורי.',
+        tip: 'כעת המטחנה מפורקת ומוכנה להתקנת חלקי התלת-ממד של Smart Grind-by-Weight.',
+        camPos: [24, 21, 36], camTarget: [0, 17, 6]
+      },
+
+      // PHASE 2: MECHANICAL ASSEMBLY OF 3D-PRINTED PARTS
+      {
+        num: 7, phase: 2, tag: 'SCREEN ADAPTER',
+        title: 'התקנת מתאם המסך (Screen Adapter)',
+        desc: 'הכנס את מתאם המסך המודפס בתלת-ממד (בצבע טורקיז) אל תוך הפתח העליון בחיפוי החזית, והחזר את חיפוי החזית למקומו.',
+        hardware: 'חלק מודפס: Screen Adapter.',
+        tip: 'המתאם יושב מצידו הפנימי של חיפוי החזית כך שהמסך מיושר בקו אחיד עם המסגרת.',
+        camPos: [-18, 22, 30], camTarget: [0, 20, 8]
+      },
+      {
+        num: 8, phase: 2, tag: 'BACK PLATE',
+        title: 'התקנת ה-Back Plate',
+        desc: 'הושב את לוחית הגב המודפסת (Back Plate, בצבע כחול-אינדיגו) בשקע התחתון בחזית המטחנה במקום שבו ישב המזלג המקורי.',
+        hardware: 'חלק מודפס: Back Plate.',
+        tip: 'ודא שהלוחית יושבת ישר ומפולסת בתוך המסילות שבחזית התחתונה.',
+        camPos: [20, 13, 30], camTarget: [0, 9, 8]
+      },
+      {
+        num: 9, phase: 2, tag: 'T70 LOAD CELL',
+        title: 'הרכבת חיישן המשקל (T70 Load Cell)',
+        desc: 'הברג את הצד הקבוע (האחורי) של חיישן ה-T70 האלומיניומי לבלוק התחתון של ה-Back Plate בעזרת 2 ברגי M3.',
+        hardware: '2× ברגי M3 (צד קבוע של החיישן).',
+        tip: 'קריטי! ודא שהחץ האדום-צהוב על קצה החיישן מצביע כלפי מטה (↓) כדי שהשקילה תהיה מדויקת.',
+        camPos: [14, 9, 22], camTarget: [0, 6.2, 11.5]
+      },
+      {
+        num: 10, phase: 2, tag: 'COVER PLATE',
+        title: 'סגירת ה-Cover Plate',
+        desc: 'החלק את לוחית הכיסוי המודפסת (Cover Plate, בצבע כתום) מעל ה-Back Plate והחיישן, ונעל למטחנה עם בורג המזלג המקורי.',
+        hardware: '1× בורג מזלג מקורי (דרך Cover + Back Plate).',
+        tip: 'בדוק שהקצה הצף של חיישן ה-T70 יוצא בחופשיות מהפתח ואינו נוגע בדפנות ה-Cover Plate.',
+        camPos: [-18, 12, 28], camTarget: [0, 8.5, 9.5]
+      },
+      {
+        num: 11, phase: 2, tag: 'CUP HOLDER 54/58mm',
+        title: 'חיבור מחזיק הכוסית (Cup Holder 54/58mm)',
+        desc: 'חבר את מחזיק הכוסית המודפס (בצבע ירוק) לקצה הצף (הקדמי) של חיישן ה-T70 בעזרת 2 ברגי M3 מלמעלה.',
+        hardware: '2× ברגי M3 (צד צף של החיישן).',
+        tip: 'חשוב מאוד: השאר מרווח אוויר קטן וודא שמחזיק הכוסית לא משתפשף ב-Cover Plate או בגוף המטחנה!',
+        camPos: [20, 14, 30], camTarget: [0, 8.5, 12]
+      },
+      {
+        num: 12, phase: 2, tag: 'FINAL ASSEMBLY',
+        title: 'כיסויי ברגים וסגירה סופית',
+        desc: 'לחץ את כיסויי הברגים (בצבע ורוד-אדום) למקומם, החזר את המכסה העליון, הבורג האחורי, התגית ומיכל הפולים — וההרכבה המכנית מושלמת!',
+        hardware: 'כיסויי ברגים + בורג אחורי מקורי + מיכל פולים.',
+        tip: 'כיסויי הברגים מונעים הצטברות של שאריות קפה בתוך ראשי הברגים של מחזיק הכוסית.',
+        camPos: [34, 26, 48], camTarget: [0, 16, 2]
+      }
+    ];
+
+    // =========================================================================
+    // 2. THREE.JS SCENE, RESPONSIVE WIDE CAMERA & STUDIO LIGHTING
+    // =========================================================================
+    const container = document.getElementById('canvasContainer');
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color('#0b0f17');
+    scene.fog = new THREE.Fog('#0b0f17', 75, 165);
+
+    const camera = new THREE.PerspectiveCamera(38, container.clientWidth / container.clientHeight, 0.1, 260);
+
+    // Helper: scale camera distance slightly further back on narrow portrait mobile screens
+    function getResponsiveCamPos(posArr) {
+      const aspect = container.clientWidth / Math.max(container.clientHeight, 1);
+      const factor = aspect < 0.75 ? 1.38 : aspect < 1.0 ? 1.18 : 1.0;
+      return new THREE.Vector3(posArr[0] * factor, posArr[1] * (factor * 0.96), posArr[2] * factor);
+    }
+
+    const initPos = getResponsiveCamPos(STEPS[0].camPos);
+    camera.position.copy(initPos);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(container.clientWidth, container.clientHeight);
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.15;
+    container.appendChild(renderer.domElement);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.07;
+    controls.target.set(...STEPS[0].camTarget);
+    controls.minDistance = 12;
+    controls.maxDistance = 110;
+    controls.maxPolarAngle = Math.PI / 2 - 0.02;
+
+    // 3-Point Studio Lighting
+    scene.add(new THREE.HemisphereLight(0xdbeafe, 0x1e293b, 0.95));
+
+    const keyLight = new THREE.DirectionalLight(0xffffff, 1.9);
+    keyLight.position.set(24, 38, 30);
+    keyLight.castShadow = true;
+    keyLight.shadow.mapSize.set(2048, 2048);
+    keyLight.shadow.camera.near = 5;
+    keyLight.shadow.camera.far = 110;
+    keyLight.shadow.camera.left = -30;
+    keyLight.shadow.camera.right = 30;
+    keyLight.shadow.camera.top = 42;
+    keyLight.shadow.camera.bottom = -12;
+    keyLight.shadow.bias = -0.0005;
+    scene.add(keyLight);
+
+    const rimLight = new THREE.DirectionalLight(0x38bdf8, 0.85);
+    rimLight.position.set(-24, 22, -22);
+    scene.add(rimLight);
+
+    const backFill = new THREE.PointLight(0xfef3c7, 0.55, 70);
+    backFill.position.set(0, 18, -26);
+    scene.add(backFill);
+
+    // Subtle Workshop Grid Floor
+    const grid = new THREE.GridHelper(84, 48, 0x334155, 0x1e293b);
+    grid.position.y = 0.01;
+    scene.add(grid);
+
+    const floor = new THREE.Mesh(
+      new THREE.PlaneGeometry(140, 140),
+      new THREE.MeshStandardMaterial({ color: 0x0b0f17, roughness: 0.92, metalness: 0.08 })
+    );
+    floor.rotation.x = -Math.PI / 2;
+    floor.receiveShadow = true;
+    scene.add(floor);
+
+    // =========================================================================
+    // 3. PROCEDURAL TEXTURES (T70 Downward Arrow, Screens, Eureka Badge)
+    // =========================================================================
+    function makeLoadCellTexture() {
+      const c = document.createElement('canvas');
+      c.width = 512; c.height = 256;
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = '#cbd5e1';
+      ctx.fillRect(0, 0, 512, 256);
+      ctx.fillStyle = '#1e293b';
+      ctx.font = 'bold 30px monospace';
+      ctx.fillText('T70 1KG', 24, 138);
+
+      // Bright Red/Yellow Downward Arrow on floating end
+      ctx.fillStyle = '#ef4444';
+      ctx.strokeStyle = '#facc15';
+      ctx.lineWidth = 6;
+      ctx.fillRect(408, 24, 28, 114);
+      ctx.strokeRect(408, 24, 28, 114);
+      ctx.beginPath();
+      ctx.moveTo(374, 132);
+      ctx.lineTo(470, 132);
+      ctx.lineTo(422, 220);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = '#b91c1c';
+      ctx.font = 'bold 24px sans-serif';
+      ctx.fillText('LOAD ↓', 376, 248);
+
+      const tex = new THREE.CanvasTexture(c);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      return tex;
+    }
+
+    function makeScreenTexture(title, value, sub, accent) {
+      const c = document.createElement('canvas');
+      c.width = 256; c.height = 384;
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = '#020617';
+      ctx.fillRect(0, 0, 256, 384);
+      ctx.strokeStyle = accent;
+      ctx.lineWidth = 6;
+      ctx.strokeRect(10, 10, 236, 364);
+      ctx.fillStyle = accent;
+      ctx.font = 'bold 24px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(title, 128, 66);
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 70px monospace';
+      ctx.fillText(value, 128, 198);
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = 'bold 20px sans-serif';
+      ctx.fillText(sub, 128, 260);
+      const tex = new THREE.CanvasTexture(c);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      return tex;
+    }
+
+    function makeBadgeTexture() {
+      const c = document.createElement('canvas');
+      c.width = 256; c.height = 128;
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = '#111827';
+      ctx.fillRect(0, 0, 256, 128);
+      ctx.strokeStyle = '#e2e8f0';
+      ctx.lineWidth = 8;
+      ctx.strokeRect(8, 8, 240, 112);
+      ctx.fillStyle = '#f8fafc';
+      ctx.font = 'bold 42px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('EUREKA', 128, 78);
+      const tex = new THREE.CanvasTexture(c);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      return tex;
+    }
+
+    // =========================================================================
+    // 4. MATERIALS
+    // =========================================================================
+    const bodyMat = new THREE.MeshStandardMaterial({
+      color: 0x1e222b, roughness: 0.48, metalness: 0.35, transparent: true, opacity: 1.0
+    });
+    const darkPlasticMat = new THREE.MeshStandardMaterial({ color: 0x14171f, roughness: 0.72, metalness: 0.1 });
+    const chromeMat = new THREE.MeshStandardMaterial({ color: 0xe2e8f0, roughness: 0.18, metalness: 0.92 });
+    const screwMat = new THREE.MeshStandardMaterial({ color: 0x94a3b8, roughness: 0.25, metalness: 0.88 });
+    const aluminumMat = new THREE.MeshStandardMaterial({ color: 0xcbd5e1, roughness: 0.32, metalness: 0.78 });
+    const loadCellSideMat = new THREE.MeshStandardMaterial({ map: makeLoadCellTexture(), roughness: 0.35, metalness: 0.62 });
+    const hopperMat = new THREE.MeshStandardMaterial({
+      color: 0x64748b, transparent: true, opacity: 0.34, roughness: 0.12, metalness: 0.1, side: THREE.DoubleSide
+    });
+
+    // Distinct matte 3D-printed colors
+    const modMats = {
+      screenAdapter: new THREE.MeshStandardMaterial({ color: 0x14b8a6, roughness: 0.72, metalness: 0.08 }), // Teal
+      backPlate:     new THREE.MeshStandardMaterial({ color: 0x6366f1, roughness: 0.72, metalness: 0.08 }), // Indigo
+      coverPlate:    new THREE.MeshStandardMaterial({ color: 0xf97316, roughness: 0.72, metalness: 0.08 }), // Orange
+      cupHolder:     new THREE.MeshStandardMaterial({ color: 0x10b981, roughness: 0.72, metalness: 0.08 }), // Emerald
+      screwCover:    new THREE.MeshStandardMaterial({ color: 0xf43f5e, roughness: 0.72, metalness: 0.08 })  // Rose
+    };
+
+    function createScrew(len = 1.4, headR = 0.28, shaftR = 0.14) {
+      const g = new THREE.Group();
+      const head = new THREE.Mesh(new THREE.CylinderGeometry(headR, headR, 0.28, 16), screwMat);
+      head.position.y = 0.14;
+      const shaft = new THREE.Mesh(new THREE.CylinderGeometry(shaftR, shaftR, len, 12), screwMat);
+      shaft.position.y = -len / 2;
+      g.add(head, shaft);
+      return g;
+    }
+
+    // =========================================================================
+    // 5. BUILD 3D GRINDER & MOD PARTS
+    // =========================================================================
+    const parts = {};
+
+    // Static Grinder Body
+    const grinder = new THREE.Group();
+    const footGeo = new THREE.CylinderGeometry(0.65, 0.75, 0.8, 16);
+    [[-4.4, 0.4, -5.2], [4.4, 0.4, -5.2], [-4.4, 0.4, 5.2], [4.4, 0.4, 5.2]].forEach(([x, y, z]) => {
+      const f = new THREE.Mesh(footGeo, darkPlasticMat);
+      f.position.set(x, y, z);
+      f.castShadow = true;
+      grinder.add(f);
+    });
+
+    const mainBox = new THREE.Mesh(new THREE.BoxGeometry(11.6, 24.0, 14.0), bodyMat);
+    mainBox.position.set(0, 12.8, 0);
+    mainBox.castShadow = true;
+    mainBox.receiveShadow = true;
+    grinder.add(mainBox);
+
+    // Internal burr chamber (visible in X-Ray)
+    const burrs = new THREE.Mesh(new THREE.CylinderGeometry(3.2, 3.2, 4.4, 24), aluminumMat);
+    burrs.position.set(0, 21.2, -0.5);
+    grinder.add(burrs);
+
+    // Metal coffee chute spout
+    const chute = new THREE.Mesh(new THREE.BoxGeometry(3.4, 3.0, 3.4), chromeMat);
+    chute.position.set(0, 16.5, 8.2);
+    chute.rotation.x = 0.35;
+    chute.castShadow = true;
+    grinder.add(chute);
+
+    // Grind Dial Knob (stays on body)
+    const dial = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.6, 1.4, 24), darkPlasticMat);
+    dial.position.set(3.6, 25.8, 3.6);
+    const dialTop = new THREE.Mesh(new THREE.CylinderGeometry(1.15, 1.15, 0.2, 24), chromeMat);
+    dialTop.position.set(3.6, 26.55, 3.6);
+    grinder.add(dial, dialTop);
+
+    scene.add(grinder);
+
+    // Top Cover Plate
+    const topCover = new THREE.Group();
+    const lid = new THREE.Mesh(new THREE.BoxGeometry(11.8, 0.8, 14.2), chromeMat);
+    lid.position.set(0, 25.2, 0);
+    lid.castShadow = true;
+    const collar = new THREE.Mesh(new THREE.CylinderGeometry(2.6, 2.8, 1.8, 28), darkPlasticMat);
+    collar.position.set(0, 26.4, -0.5);
+    topCover.add(lid, collar);
+    parts.topCover = { group: topCover, explode: new THREE.Vector3(0, 4.8, 0) };
+    scene.add(topCover);
+
+    // Smoked Clear Bean Hopper + Lid
+    const hopper = new THREE.Group();
+    const hNeck = new THREE.Mesh(new THREE.CylinderGeometry(2.35, 2.35, 1.8, 28), darkPlasticMat);
+    hNeck.position.set(0, 27.6, -0.5);
+    const hBody = new THREE.Mesh(new THREE.CylinderGeometry(4.6, 2.5, 6.2, 32, 1, true), hopperMat);
+    hBody.position.set(0, 31.4, -0.5);
+    const hLid = new THREE.Mesh(new THREE.CylinderGeometry(4.75, 4.75, 0.55, 32), darkPlasticMat);
+    hLid.position.set(0, 34.6, -0.5);
+    hopper.add(hNeck, hBody, hLid);
+    parts.hopper = { group: hopper, explode: new THREE.Vector3(0, 9.5, 0) };
+    scene.add(hopper);
+
+    // Rear Eureka Badge & Screw
+    const rearBadge = new THREE.Group();
+    const bMesh = new THREE.Mesh(
+      new THREE.BoxGeometry(3.8, 1.6, 0.3),
+      [darkPlasticMat, darkPlasticMat, darkPlasticMat, darkPlasticMat, darkPlasticMat, new THREE.MeshStandardMaterial({ map: makeBadgeTexture(), roughness: 0.4 })]
+    );
+    bMesh.position.set(0, 22.8, -7.25);
+    rearBadge.add(bMesh);
+    parts.rearBadge = { group: rearBadge, explode: new THREE.Vector3(0, 0, -6.5) };
+    scene.add(rearBadge);
+
+    const rearScrew = new THREE.Group();
+    const rs = createScrew(1.6, 0.34, 0.16);
+    rs.rotation.x = -Math.PI / 2;
+    rs.position.set(0, 22.8, -7.1);
+    rearScrew.add(rs);
+    parts.rearScrew = { group: rearScrew, explode: new THREE.Vector3(0, 0, -3.5) };
+    scene.add(rearScrew);
+
+    // Original Stock Portafilter Fork & Screw
+    const origFork = new THREE.Group();
+    const fBack = new THREE.Mesh(new THREE.BoxGeometry(3.2, 4.8, 0.5), chromeMat);
+    fBack.position.set(0, 9.2, 8.2);
+    const pL = new THREE.Mesh(new THREE.BoxGeometry(0.65, 0.45, 5.2), chromeMat);
+    pL.position.set(-1.35, 7.1, 10.6);
+    const pR = pL.clone(); pR.position.x = 1.35;
+    const tL = new THREE.Mesh(new THREE.BoxGeometry(0.85, 0.65, 1.6), darkPlasticMat);
+    tL.position.set(-1.35, 7.1, 12.6);
+    const tR = tL.clone(); tR.position.x = 1.35;
+    origFork.add(fBack, pL, pR, tL, tR);
+    parts.origFork = { group: origFork, explode: new THREE.Vector3(0, 0, 9.0) };
+    scene.add(origFork);
+
+    const origForkScrew = new THREE.Group();
+    const fs = createScrew(1.8, 0.36, 0.17);
+    fs.rotation.x = Math.PI / 2;
+    fs.position.set(0, 11.2, 8.6);
+    origForkScrew.add(fs);
+    parts.origForkScrew = { group: origForkScrew, explode: new THREE.Vector3(0, 0, 12.0) };
+    scene.add(origForkScrew);
+
+    // Front Nose / Chute Cover
+    const frontNose = new THREE.Group();
+    const nUpper = new THREE.Mesh(new THREE.BoxGeometry(6.4, 11.2, 2.4), chromeMat);
+    nUpper.position.set(0, 18.8, 8.2);
+    nUpper.castShadow = true;
+    const bL = new THREE.Mesh(new THREE.BoxGeometry(0.9, 4.2, 0.8), darkPlasticMat);
+    bL.position.set(-2.3, 21.0, 9.5); bL.rotation.x = -0.22;
+    const bR = bL.clone(); bR.position.x = 2.3;
+    const bT = new THREE.Mesh(new THREE.BoxGeometry(5.5, 0.7, 0.8), darkPlasticMat);
+    bT.position.set(0, 22.8, 9.1); bT.rotation.x = -0.22;
+    const bB = new THREE.Mesh(new THREE.BoxGeometry(5.5, 0.7, 0.8), darkPlasticMat);
+    bB.position.set(0, 19.2, 9.85); bB.rotation.x = -0.22;
+    const rL = new THREE.Mesh(new THREE.BoxGeometry(1.0, 9.6, 1.8), darkPlasticMat);
+    rL.position.set(-2.7, 8.4, 7.9);
+    const rR = rL.clone(); rR.position.x = 2.7;
+    const lWall = new THREE.Mesh(new THREE.BoxGeometry(6.4, 9.6, 0.4), darkPlasticMat);
+    lWall.position.set(0, 8.4, 7.2);
+    frontNose.add(nUpper, bL, bR, bT, bB, rL, rR, lWall);
+    parts.frontNose = { group: frontNose, explode: new THREE.Vector3(0, 2.2, 6.0) };
+    scene.add(frontNose);
+
+    // Original Stock Touchscreen Bezel
+    const origScreen = new THREE.Group();
+    const osBody = new THREE.Mesh(new THREE.BoxGeometry(4.0, 3.4, 0.6), darkPlasticMat);
+    osBody.position.set(0, 21.0, 9.15); osBody.rotation.x = -0.22;
+    const osFace = new THREE.Mesh(
+      new THREE.PlaneGeometry(3.2, 2.8),
+      new THREE.MeshBasicMaterial({ map: makeScreenTexture('EUREKA', '08.5s', 'TIMER', '#f97316') })
+    );
+    osFace.position.set(0, 21.02, 9.5); osFace.rotation.x = -0.22;
+    origScreen.add(osBody, osFace);
+    parts.origScreen = { group: origScreen, explode: new THREE.Vector3(0, 2.2, 2.0) };
+    scene.add(origScreen);
+
+    // 3D-Printed Screen Adapter (Teal)
+    const screenAdapter = new THREE.Group();
+    const saFrame = new THREE.Mesh(new THREE.BoxGeometry(4.2, 3.6, 0.7), modMats.screenAdapter);
+    saFrame.position.set(0, 21.0, 9.15); saFrame.rotation.x = -0.22;
+    const wsFace = new THREE.Mesh(
+      new THREE.PlaneGeometry(3.2, 2.8),
+      new THREE.MeshBasicMaterial({ map: makeScreenTexture('SMART GBW', '18.0g', 'READY', '#38bdf8') })
+    );
+    wsFace.position.set(0, 21.02, 9.52); wsFace.rotation.x = -0.22;
+    screenAdapter.add(saFrame, wsFace);
+    parts.screenAdapter = { group: screenAdapter, explode: new THREE.Vector3(0, 2.2, 2.0) };
+    scene.add(screenAdapter);
+
+    // 3D-Printed Back Plate (Indigo)
+    const backPlate = new THREE.Group();
+    const bpMain = new THREE.Mesh(new THREE.BoxGeometry(4.2, 8.6, 0.9), modMats.backPlate);
+    bpMain.position.set(0, 8.4, 7.95);
+    const bpBlock = new THREE.Mesh(new THREE.BoxGeometry(3.4, 2.6, 1.1), modMats.backPlate);
+    bpBlock.position.set(0, 5.5, 8.6);
+    backPlate.add(bpMain, bpBlock);
+    parts.backPlate = { group: backPlate, explode: new THREE.Vector3(0, 0, 7.2) };
+    scene.add(backPlate);
+
+    // Aluminum T70 Load Cell + Downward Arrow Decal
+    const loadCell = new THREE.Group();
+    const lcShape = new THREE.Shape();
+    lcShape.moveTo(0, 0); lcShape.lineTo(7.0, 0); lcShape.lineTo(7.0, 2.2); lcShape.lineTo(0, 2.2); lcShape.closePath();
+    const hole = new THREE.Path();
+    hole.absellipse(3.5, 1.1, 1.35, 0.58, 0, Math.PI * 2, false, 0);
+    lcShape.holes.push(hole);
+    const lcGeo = new THREE.ExtrudeGeometry(lcShape, { depth: 1.5, bevelEnabled: true, bevelThickness: 0.05, bevelSize: 0.05, bevelSegments: 2 });
+    lcGeo.rotateY(-Math.PI / 2);
+    lcGeo.translate(0.75, 4.4, 8.8);
+    loadCell.add(new THREE.Mesh(lcGeo, aluminumMat));
+
+    const dGeo = new THREE.PlaneGeometry(6.8, 2.05);
+    const rDec = new THREE.Mesh(dGeo, loadCellSideMat);
+    rDec.rotation.y = Math.PI / 2; rDec.position.set(0.82, 5.5, 12.3);
+    const lDec = new THREE.Mesh(dGeo, loadCellSideMat);
+    lDec.rotation.y = -Math.PI / 2; lDec.position.set(-0.82, 5.5, 12.3);
+    loadCell.add(rDec, lDec);
+    parts.loadCell = { group: loadCell, explode: new THREE.Vector3(0, 0, 11.0) };
+    scene.add(loadCell);
+
+    const lcScrews = new THREE.Group();
+    [9.4, 10.3].forEach(z => {
+      const s = createScrew(1.2, 0.24, 0.13);
+      s.position.set(0, 6.7, z);
+      lcScrews.add(s);
+    });
+    parts.lcScrews = { group: lcScrews, explode: new THREE.Vector3(0, 2.4, 11.0) };
+    scene.add(lcScrews);
+
+    // 3D-Printed Cover Plate (Orange) + Central Fork Screw
+    const coverPlate = new THREE.Group();
+    const cpUp = new THREE.Mesh(new THREE.BoxGeometry(4.8, 5.8, 1.3), modMats.coverPlate);
+    cpUp.position.set(0, 10.0, 9.25);
+    const cpL = new THREE.Mesh(new THREE.BoxGeometry(1.3, 3.0, 1.3), modMats.coverPlate);
+    cpL.position.set(-1.75, 5.6, 9.25);
+    const cpR = cpL.clone(); cpR.position.x = 1.75;
+    coverPlate.add(cpUp, cpL, cpR);
+    parts.coverPlate = { group: coverPlate, explode: new THREE.Vector3(0, 0, 15.0) };
+    scene.add(coverPlate);
+
+    const centerScrew = new THREE.Group();
+    const cs = createScrew(2.4, 0.38, 0.18);
+    cs.rotation.x = Math.PI / 2;
+    cs.position.set(0, 11.2, 10.05);
+    centerScrew.add(cs);
+    parts.centerScrew = { group: centerScrew, explode: new THREE.Vector3(0, 0, 18.5) };
+    scene.add(centerScrew);
+
+    // 3D-Printed Cup Holder (Emerald) + 2× M3 Screws + Screw Hole Covers (Rose)
+    const cupHolder = new THREE.Group();
+    const tray = new THREE.Mesh(new THREE.CylinderGeometry(3.2, 3.1, 0.5, 36), modMats.cupHolder);
+    tray.position.set(0, 6.95, 13.8);
+    const rim = new THREE.Mesh(new THREE.TorusGeometry(3.05, 0.25, 12, 36), modMats.cupHolder);
+    rim.rotation.x = Math.PI / 2; rim.position.set(0, 7.3, 13.8);
+    const mBlock = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.9, 2.4), modMats.cupHolder);
+    mBlock.position.set(0, 7.1, 14.6);
+    cupHolder.add(tray, rim, mBlock);
+    parts.cupHolder = { group: cupHolder, explode: new THREE.Vector3(0, 4.2, 13.5) };
+    scene.add(cupHolder);
+
+    const cupScrews = new THREE.Group();
+    [14.1, 15.1].forEach(z => {
+      const s = createScrew(1.4, 0.25, 0.13);
+      s.position.set(0, 7.6, z);
+      cupScrews.add(s);
+    });
+    parts.cupScrews = { group: cupScrews, explode: new THREE.Vector3(0, 7.0, 13.5) };
+    scene.add(cupScrews);
+
+    const screwCover = new THREE.Group();
+    const cap = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.28, 1.9), modMats.screwCover);
+    cap.position.set(0, 7.68, 14.6);
+    screwCover.add(cap);
+    parts.screwCover = { group: screwCover, explode: new THREE.Vector3(0, 9.6, 13.5) };
+    scene.add(screwCover);
+
+    // =========================================================================
+    // 6. STEP STATE MACHINE (Steps 1..12)
+    // =========================================================================
+    const ZERO = new THREE.Vector3(0, 0, 0);
+
+    function getPartTarget(key, stepNum) {
+      switch (key) {
+        case 'hopper':
+          if (stepNum === 1 || stepNum === 12) return { vis: true, off: ZERO };
+          if (stepNum === 2) return { vis: true, off: new THREE.Vector3(0, 9.5, 0) };
+          return { vis: false, off: new THREE.Vector3(0, 12, 0) };
+
+        case 'rearBadge':
+          if (stepNum <= 2 || stepNum === 12) return { vis: true, off: ZERO };
+          if (stepNum === 3) return { vis: true, off: new THREE.Vector3(0, 0, -7.0) };
+          return { vis: false, off: new THREE.Vector3(0, 0, -9.0) };
+
+        case 'rearScrew':
+          if (stepNum <= 2 || stepNum === 12) return { vis: true, off: ZERO };
+          if (stepNum === 3) return { vis: true, off: new THREE.Vector3(0, 0, -3.5) };
+          return { vis: false, off: new THREE.Vector3(0, 0, -5.0) };
+
+        case 'topCover':
+          if (stepNum <= 3 || stepNum === 12) return { vis: true, off: ZERO };
+          if (stepNum === 4) return { vis: true, off: new THREE.Vector3(0, 6.0, 0) };
+          return { vis: false, off: new THREE.Vector3(0, 9.0, 0) };
+
+        case 'origFork':
+          if (stepNum <= 4) return { vis: true, off: ZERO };
+          if (stepNum === 5) return { vis: true, off: new THREE.Vector3(0, 0, 8.5) };
+          return { vis: false, off: new THREE.Vector3(0, 0, 12.0) };
+
+        case 'origForkScrew':
+          if (stepNum <= 4) return { vis: true, off: ZERO };
+          if (stepNum === 5) return { vis: true, off: new THREE.Vector3(0, 0, 12.0) };
+          return { vis: false, off: new THREE.Vector3(0, 0, 14.0) };
+
+        case 'frontNose':
+          if (stepNum <= 5 || stepNum >= 8) return { vis: true, off: ZERO };
+          if (stepNum === 6) return { vis: true, off: new THREE.Vector3(0, 2.0, 6.5) };
+          if (stepNum === 7) return { vis: true, off: new THREE.Vector3(0, 1.0, 3.0) };
+          return { vis: true, off: ZERO };
+
+        case 'origScreen':
+          if (stepNum <= 5) return { vis: true, off: ZERO };
+          if (stepNum === 6) return { vis: true, off: new THREE.Vector3(0, 2.0, 10.5) };
+          return { vis: false, off: new THREE.Vector3(0, 2.0, 12.0) };
+
+        case 'screenAdapter':
+          if (stepNum <= 6) return { vis: false, off: new THREE.Vector3(0, 2.0, 10.0) };
+          if (stepNum === 7) return { vis: true, off: new THREE.Vector3(0, 1.0, 3.0) };
+          return { vis: true, off: ZERO };
+
+        case 'backPlate':
+          if (stepNum <= 7) return { vis: false, off: new THREE.Vector3(0, 0, 7.5) };
+          return { vis: true, off: ZERO };
+
+        case 'loadCell':
+        case 'lcScrews':
+          if (stepNum <= 8) return { vis: false, off: new THREE.Vector3(0, 0, 10.5) };
+          return { vis: true, off: ZERO };
+
+        case 'coverPlate':
+        case 'centerScrew':
+          if (stepNum <= 9) return { vis: false, off: new THREE.Vector3(0, 0, 14.0) };
+          return { vis: true, off: ZERO };
+
+        case 'cupHolder':
+        case 'cupScrews':
+          if (stepNum <= 10) return { vis: false, off: new THREE.Vector3(0, 5.0, 14.0) };
+          return { vis: true, off: ZERO };
+
+        case 'screwCover':
+          if (stepNum <= 11) return { vis: false, off: new THREE.Vector3(0, 8.0, 14.0) };
+          return { vis: true, off: ZERO };
+
+        default:
+          return { vis: true, off: ZERO };
+      }
+    }
+
+    // =========================================================================
+    // 7. UI CONTROLLER (COLLAPSED BY DEFAULT)
+    // =========================================================================
+    let currentStep = 1; // 1..12
+    let isPlaying = false;
+    let playTimer = 0;
+    let explodeFactor = 0;
+    let isXray = false;
+    let isDetailsOpen = false; // CLOSED BY DEFAULT!
+
+    let camLerpActive = false;
+    const targetCamPos = initPos.clone();
+    const targetLookAt = new THREE.Vector3(...STEPS[0].camTarget);
+
+    controls.addEventListener('start', () => { camLerpActive = false; });
+
+    // Collapsible Details Drawer Toggle
+    const toggleDetailsBtn = document.getElementById('toggleDetailsBtn');
+    const detailsPanel = document.getElementById('detailsPanel');
+    const toggleDetailsText = document.getElementById('toggleDetailsText');
+    const toggleChevron = document.getElementById('toggleChevron');
+
+    toggleDetailsBtn.addEventListener('click', () => {
+      isDetailsOpen = !isDetailsOpen;
+      detailsPanel.classList.toggle('hidden', !isDetailsOpen);
+      toggleDetailsText.textContent = isDetailsOpen ? 'הסתר פירוט' : 'הצג פירוט';
+      toggleChevron.classList.toggle('rotate-180', isDetailsOpen);
+    });
+
+    // Build Quick Step Jump Buttons (1-12)
+    const jumpGrid = document.getElementById('stepJumpGrid');
+    function renderJumpGrid() {
+      jumpGrid.innerHTML = '';
+      STEPS.forEach(s => {
+        const b = document.createElement('button');
+        const active = s.num === currentStep;
+        b.textContent = s.num;
+        b.className = `py-1.5 rounded-lg text-xs font-bold font-mono-tech transition cursor-pointer ${
+          active
+            ? (s.phase === 1 ? 'bg-rose-500 text-slate-950' : 'bg-emerald-400 text-slate-950')
+            : 'bg-slate-800/80 text-slate-300 hover:bg-slate-700 border border-slate-700/60'
+        }`;
+        b.addEventListener('click', () => { stopPlay(); goToStep(s.num); });
+        jumpGrid.appendChild(b);
+      });
+    }
+
+    function updateUI() {
+      const s = STEPS[currentStep - 1];
+      document.getElementById('stepBadgePill').textContent = `${s.num}/12`;
+      document.getElementById('slimTitle').textContent = `${s.num}/12 • ${s.title}`;
+      document.getElementById('partTag').textContent = s.tag;
+      document.getElementById('detailTitle').textContent = `${s.num}. ${s.title}`;
+      document.getElementById('detailDesc').textContent = s.desc;
+      document.getElementById('hardwareText').textContent = s.hardware;
+      document.getElementById('tipText').textContent = s.tip;
+
+      const pb = document.getElementById('phaseBadge');
+      if (s.phase === 1) {
+        pb.textContent = 'שלב א׳: פירוק המטחנה מהמפעל';
+        pb.className = 'px-2 py-0.5 rounded-md text-[11px] font-bold bg-rose-500/20 text-rose-300 border border-rose-500/35';
+      } else {
+        pb.textContent = 'שלב ב׳: הרכבת חלקי התלת-ממד';
+        pb.className = 'px-2 py-0.5 rounded-md text-[11px] font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/35';
+      }
+      renderJumpGrid();
+    }
+
+    function goToStep(num) {
+      currentStep = Math.max(1, Math.min(12, num));
+      updateUI();
+      if (document.getElementById('autoCamCheck').checked) {
+        const s = STEPS[currentStep - 1];
+        targetCamPos.copy(getResponsiveCamPos(s.camPos));
+        targetLookAt.set(...s.camTarget);
+        camLerpActive = true;
+      }
+    }
+
+    function stopPlay() {
+      isPlaying = false;
+      document.getElementById('playIcon').textContent = '▶';
+      document.getElementById('playLabel').textContent = 'נגן';
+    }
+
+    document.getElementById('prevBtn').addEventListener('click', () => { stopPlay(); goToStep(currentStep - 1); });
+    document.getElementById('nextBtn').addEventListener('click', () => { stopPlay(); goToStep(currentStep + 1); });
+    document.getElementById('playBtn').addEventListener('click', () => {
+      isPlaying = !isPlaying;
+      playTimer = 0;
+      document.getElementById('playIcon').textContent = isPlaying ? '⏸' : '▶';
+      document.getElementById('playLabel').textContent = isPlaying ? 'השהה' : 'נגן';
+      if (isPlaying && currentStep === 12) goToStep(1);
+    });
+
+    // Camera Presets
+    const CAM_PRESETS = {
+      wide:  { pos: [34, 26, 48], target: [0, 16, 2] },
+      rear:  { pos: [-24, 27, -38], target: [0, 21, -4] },
+      front: { pos: [0, 15, 42], target: [0, 14, 4] },
+      t70:   { pos: [14, 9, 22], target: [0, 6.2, 11.5] }
+    };
+    document.querySelectorAll('.cam-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const p = CAM_PRESETS[btn.dataset.cam];
+        if (!p) return;
+        targetCamPos.copy(getResponsiveCamPos(p.pos));
+        targetLookAt.set(...p.target);
+        camLerpActive = true;
+      });
+    });
+
+    // Exploded View Slider
+    document.getElementById('explodeSlider').addEventListener('input', (e) => {
+      const val = Number(e.target.value);
+      explodeFactor = val / 100;
+      document.getElementById('explodePct').textContent = `${val}%`;
+    });
+
+    // X-Ray Toggle
+    const xrayBtn = document.getElementById('xrayBtn');
+    xrayBtn.addEventListener('click', () => {
+      isXray = !isXray;
+      bodyMat.opacity = isXray ? 0.24 : 1.0;
+      bodyMat.depthWrite = !isXray;
+      xrayBtn.className = isXray
+        ? 'px-2.5 py-2 rounded-xl bg-sky-500/25 text-sky-300 border border-sky-400/50 text-xs font-semibold transition cursor-pointer'
+        : 'px-2.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-600/60 text-xs font-semibold transition cursor-pointer';
+    });
+
+    // =========================================================================
+    // 8. STL INSPECTOR MODAL (Three.js STLLoader)
+    // =========================================================================
+    const stlModal = document.getElementById('stlModal');
+    const stlHost = document.getElementById('stlCanvasHost');
+    let stlScene, stlCam, stlRend, stlCtrl, stlMesh = null, stlReady = false;
+
+    function initStlViewer() {
+      if (stlReady) return;
+      stlReady = true;
+      stlScene = new THREE.Scene();
+      stlScene.background = new THREE.Color('#090d16');
+      stlCam = new THREE.PerspectiveCamera(45, stlHost.clientWidth / Math.max(stlHost.clientHeight, 1), 0.1, 2000);
+      stlCam.position.set(90, 70, 110);
+      stlRend = new THREE.WebGLRenderer({ antialias: true });
+      stlRend.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+      stlRend.setSize(stlHost.clientWidth, stlHost.clientHeight);
+      stlHost.appendChild(stlRend.domElement);
+
+      stlCtrl = new OrbitControls(stlCam, stlRend.domElement);
+      stlCtrl.enableDamping = true;
+      stlScene.add(new THREE.HemisphereLight(0xffffff, 0x1e293b, 1.0));
+      const dl = new THREE.DirectionalLight(0xffffff, 1.5);
+      dl.position.set(80, 120, 90);
+      stlScene.add(dl);
+      stlScene.add(new THREE.GridHelper(200, 20, 0x334155, 0x1e293b));
+    }
+
+    function loadStlFile(file) {
+      if (!file) return;
+      initStlViewer();
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        try {
+          const loader = new STLLoader();
+          const geo = loader.parse(ev.target.result);
+          geo.computeVertexNormals();
+          geo.computeBoundingBox();
+          const box = geo.boundingBox;
+          const size = new THREE.Vector3();
+          const center = new THREE.Vector3();
+          box.getSize(size);
+          box.getCenter(center);
+          geo.translate(-center.x, -center.y, -center.z);
+
+          if (stlMesh) stlScene.remove(stlMesh);
+          stlMesh = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: 0x38bdf8, roughness: 0.45, metalness: 0.2 }));
+          stlScene.add(stlMesh);
+
+          const maxDim = Math.max(size.x, size.y, size.z, 10);
+          stlCam.position.set(maxDim * 1.4, maxDim * 1.1, maxDim * 1.6);
+          stlCtrl.target.set(0, 0, 0);
+          stlCtrl.update();
+
+          document.getElementById('stlEmpty').classList.add('hidden');
+          document.getElementById('stlBar').classList.remove('hidden');
+          document.getElementById('stlName').textContent = file.name;
+          document.getElementById('stlSize').textContent = `${size.x.toFixed(1)}×${size.y.toFixed(1)}×${size.z.toFixed(1)} mm`;
+        } catch (err) {
+          document.getElementById('stlName').textContent = 'שגיאה בקריאת הקובץ';
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    }
+
+    document.getElementById('openStlBtn').addEventListener('click', () => {
+      stlModal.classList.remove('hidden');
+      stlModal.classList.add('flex');
+      setTimeout(() => {
+        initStlViewer();
+        stlCam.aspect = stlHost.clientWidth / Math.max(stlHost.clientHeight, 1);
+        stlCam.updateProjectionMatrix();
+        stlRend.setSize(stlHost.clientWidth, stlHost.clientHeight);
+      }, 40);
+    });
+    document.getElementById('closeStlBtn').addEventListener('click', () => {
+      stlModal.classList.add('hidden');
+      stlModal.classList.remove('flex');
+    });
+    document.getElementById('stlFileInput').addEventListener('change', (e) => loadStlFile(e.target.files[0]));
+    document.getElementById('stlFileInputAlt').addEventListener('change', (e) => loadStlFile(e.target.files[0]));
+    document.getElementById('stlWireBtn').addEventListener('click', () => {
+      if (stlMesh) stlMesh.material.wireframe = !stlMesh.material.wireframe;
+    });
+    const dz = document.getElementById('stlDropZone');
+    dz.addEventListener('dragover', (e) => e.preventDefault());
+    dz.addEventListener('drop', (e) => {
+      e.preventDefault();
+      if (e.dataTransfer.files[0]) loadStlFile(e.dataTransfer.files[0]);
+    });
+
+    // =========================================================================
+    // 9. ANIMATION LOOP & RESIZE
+    // =========================================================================
+    const clock = new THREE.Clock();
+    const tmpVec = new THREE.Vector3();
+
+    function animate() {
+      requestAnimationFrame(animate);
+      const dt = Math.min(clock.getDelta(), 0.1);
+
+      // Auto-play progression
+      if (isPlaying) {
+        playTimer += dt;
+        if (playTimer > 3.2) {
+          playTimer = 0;
+          if (currentStep < 12) goToStep(currentStep + 1);
+          else stopPlay();
+        }
+      }
+
+      // Smoothly animate all 3D parts
+      const lerpAmt = 1 - Math.exp(-8 * dt);
+      for (const [key, p] of Object.entries(parts)) {
+        const st = getPartTarget(key, currentStep);
+        p.group.visible = st.vis;
+        tmpVec.copy(st.off).addScaledVector(p.explode, explodeFactor);
+        p.group.position.lerp(tmpVec, lerpAmt);
+      }
+
+      // Smooth camera transition
+      if (camLerpActive) {
+        camera.position.lerp(targetCamPos, 1 - Math.exp(-5.5 * dt));
+        controls.target.lerp(targetLookAt, 1 - Math.exp(-5.5 * dt));
+        if (camera.position.distanceTo(targetCamPos) < 0.08) camLerpActive = false;
+      }
+
+      controls.update();
+      renderer.render(scene, camera);
+
+      if (stlReady && !stlModal.classList.contains('hidden')) {
+        stlCtrl.update();
+        stlRend.render(stlScene, stlCam);
+      }
+    }
+
+    window.addEventListener('resize', () => {
+      camera.aspect = container.clientWidth / Math.max(container.clientHeight, 1);
+      camera.updateProjectionMatrix();
+      renderer.setSize(container.clientWidth, container.clientHeight);
+      if (stlReady && !stlModal.classList.contains('hidden')) {
+        stlCam.aspect = stlHost.clientWidth / Math.max(stlHost.clientHeight, 1);
+        stlCam.updateProjectionMatrix();
+        stlRend.setSize(stlHost.clientWidth, stlHost.clientHeight);
+      }
+    });
+
+    // Initialize UI and start loop
+    updateUI();
+    animate();
+  </script>
+</body>
+</html>
