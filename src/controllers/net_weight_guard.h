@@ -28,6 +28,9 @@ public:
     }
 
     bool has_reference() const { return reference_weight_g_ > 0.0f; }
+    bool is_removed(float net_weight_g) const {
+        return has_reference() && net_weight_g <= removal_threshold_g();
+    }
     void cancel_pending() { consecutive_samples_ = 0; }
     float reference_weight_g() const { return reference_weight_g_; }
     float removal_threshold_g() const {

@@ -76,7 +76,7 @@ struct Logger {
         assert(active); ++saves; active = false; result = r; weight = w;
         saved_generations.push_back(generation);
     }
-    void discard_current_session() { active = false; ++discards; }
+    void discard_current_session() { if (!active) return; active = false; ++discards; }
 } grind_logger;
 struct Statistics { void update_manual_grind(uint32_t) {} void update_time_pulse() {} } statistics_manager;
 struct FileIOTask {
@@ -111,6 +111,10 @@ public:
     Strategy* active_strategy = nullptr;
     GrindSessionDescriptor session_descriptor{};
     int strategy_context = 0;
+    bool adaptive_coast_dirty_ = false;
+    void save_adaptive_coast_state() {}
+    bool vessel_present = true;
+    bool vessel_on_scale() const { return vessel_present; }
     void switch_phase(GrindPhase p, const GrindLoopData& = {}) { phase = p; }
     bool queue_terminal_session();
     bool queue_flash_operation(const FlashOpRequest&);
@@ -167,6 +171,22 @@ int main() {
     assert(grind_logger.saves == 4 && motor.motor);
     assert(c.phase == GrindPhase::TIME_ADDITIONAL_PULSE);
     motor.stop(); c.phase = GrindPhase::COMPLETED;
+    // A weight grind can be topped up only while its cup is on the scale;
+    // a manual grind never can.
+    c.mode = GrindMode::WEIGHT; c.vessel_present = false;
+    c.start_additional_pulse(); assert(!motor.motor && c.additional_pulse_count == 1);
+    c.vessel_present = true;
+    c.start_additional_pulse(); assert(motor.motor && c.additional_pulse_count == 2);
+    assert(c.phase == GrindPhase::TIME_ADDITIONAL_PULSE && !c.can_pulse());
+    // Dismissing while the top-up runs or settles stops the motor, keeps the
+    // saved record and frees the grinder for the next operation.
+    c.return_to_idle();
+    assert(c.phase == GrindPhase::IDLE && !motor.motor);
+    assert(grind_logger.saves == 4 && grind_logger.discards == 0);
+    c.operation_token_ = operation_interlock().try_acquire(); assert(c.operation_token_);
+    c.phase = GrindPhase::COMPLETED;
+    c.mode = GrindMode::MANUAL; assert(!c.can_pulse());
+    c.mode = GrindMode::TIME;
     c.return_to_idle(); assert(grind_logger.saves == 4);
     // Missing queue must neither crash nor release unsaved buffers for reuse.
     grind_logger.start_grind_session({}, 0);

@@ -74,7 +74,7 @@ These steps describe the default grind-by-weight workflow:
 
 Need the stock timed run? Enable swipe gestures in **Menu → Grind Settings**, then swipe up or down on the ready screen before you start; the GRIND button background turns blue to confirm time mode is active (red = weight). Alternatively, use the direct **Time Mode** toggle in the menu.
 
-> **Time mode pulse button:** In time mode completion, a "+" button appears next to OK for 100ms additional grinding pulses.
+> **Top-up "+" button:** When a weight or time grind completes, a "+" button appears next to OK. Each tap runs one short pulse for a little more coffee. In weight mode the pulse lasts the motor latency plus 100 ms, after which the scale settles (about a second) and the final weight and its deviation from the target are refreshed; the "+" button is dimmed and ignored while that is happening, and ignored once the cup has been lifted off; OK still dismisses right away. In time mode the pulse is a fixed 100 ms. The saved history entry keeps the weight measured before any top-up.
 
 From the local web dashboard, choose Single, Double or Custom and use the round
 play/stop button to request the same target grind remotely. The request passes
@@ -114,7 +114,7 @@ Main Screen (swipe left/right between tabs, up/down to toggle weight/time mode i
 +-- Custom Profile
 |   |-- Weight display (long press to edit)
 |   \-- GRIND button (red=weight, blue=time)
-|   \-- Time mode completion: OK + PULSE buttons
+|   \-- Weight or time completion: OK + PULSE buttons
 |
 \-- Menu (scrollable hub)
     |

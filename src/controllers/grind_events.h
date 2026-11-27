@@ -32,7 +32,7 @@ enum class UIGrindEvent {
     TIMEOUT,          // Grind timed out with phase info
     STOPPED,          // Grind stopped by user or error
     BACKGROUND_CHANGE,// Background color change for grinder activity indication
-    PULSE_AVAILABLE,  // Time mode completion - pulses can be requested
+    PULSE_AVAILABLE,  // Completion - pulses can be requested
     PULSE_STARTED,    // Additional pulse started
     PULSE_COMPLETED   // Additional pulse finished, weight updated
 };

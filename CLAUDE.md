@@ -43,17 +43,17 @@ python3 tools/grinder.py analyze
 
 **Key Components:**
 - **HardwareManager**: Central hardware coordinator
-- **GrindController**: Multi-phase state machine with predictive flow control, 10 pulse corrections, mechanical instability detection, time mode additional pulses, and target-free manual grinding
+- **GrindController**: Multi-phase state machine with predictive flow control, 10 pulse corrections, mechanical instability detection, post-completion top-up pulses, and target-free manual grinding
 - **LoadCell (HX711)**: Multi-mode precision weight measurement (instant, smoothed, filtered), calibration flag, noise diagnostics
 - **DiagnosticsController**: System health monitoring (calibration status, sustained noise, mechanical instability), state persistence, hysteresis, priority-based warnings
-- **UIManager**: 7 screens with LVGL integration; menu page surfaces quick Tools (Scale view, Calibrate, Tune Pulses, Motor Test) followed by Settings (Bluetooth, Display, Grind Settings) and Info sections (Diagnostics, System Info, Logs & Data, Lifetime Stats), warning icon indicator, split-button layout for time mode pulses
+- **UIManager**: 7 screens with LVGL integration; menu page surfaces quick Tools (Scale view, Calibrate, Tune Pulses, Motor Test) followed by Settings (Bluetooth, Display, Grind Settings) and Info sections (Diagnostics, System Info, Logs & Data, Lifetime Stats), warning icon indicator, split-button layout for completion top-up pulses
 - **StateMachine**: Central state coordination (READY → GRINDING → GRIND_COMPLETE)
 
 **Update Intervals:** 20ms grind control, 25ms load cell (active), 50ms UI/hardware
 
 **Grind Phases:**
 - Standard phases: IDLE, INITIALIZING, SETUP, TARING, TARE_CONFIRM, PRIME, PRIME_SETTLING, PREDICTIVE, PULSE_DECISION, PULSE_EXECUTE, PULSE_SETTLING, FINAL_SETTLING, TIME_GRINDING, MANUAL_GRINDING, COMPLETED, TIMEOUT
-- `TIME_ADDITIONAL_PULSE` - Dedicated phase for post-completion additional grinding pulses in time mode
+- `TIME_ADDITIONAL_PULSE` - Dedicated phase for post-completion top-up pulses in weight and time mode; weight mode waits for the scale to settle and re-measures the final weight
 - `PURGE_CONFIRM` - Pauses after chute operation (in Purge mode) to allow user to discard grinds before continuing to main grind
 - **Timeouts**: Targeted grinds stop after 60 seconds; target-free Manual mode has its own 30-second safety cutoff
 
@@ -66,7 +66,7 @@ python3 tools/grinder.py analyze
 - **Logging disabled** during PURGE_CONFIRM phase to avoid capturing data while paused
 - **Preferences**: `chute_mode` (int: 0=Prime, 1=Purge, default=1), `chute_amount_g` (float: 0.1-5.0, default=1.0)
 
-**Time Mode Pulses:** Split-button completion screen (OK + PULSE), `TIME_ADDITIONAL_PULSE` phase, 100ms duration
+**Top-up Pulses:** Split-button completion screen (OK + PULSE) in weight and time mode, `TIME_ADDITIONAL_PULSE` phase, 100ms duration (weight mode adds the motor latency)
 
 **Grind Settings:** Configurable through Menu → Grind Settings page
 - **Mode Selection**: Radio buttons for Weight/Time mode selection

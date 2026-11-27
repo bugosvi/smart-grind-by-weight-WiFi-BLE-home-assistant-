@@ -603,6 +603,11 @@ void GrindingScreenPortafilter::update_phase(GrindPhase phase, bool paused) {
         completed_ = false;
         overshoot_ = false;
         error_ = false;
+        if (deviation_shown_) {
+            // The dose is changing; its deviation returns once re-measured.
+            deviation_shown_ = false;
+            update_target_weight(target_weight_g_);
+        }
         refresh_visual_accent();
     }
 

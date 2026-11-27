@@ -278,7 +278,7 @@ void GrindingUIController::handle_pulse_button() {
         return;
     }
 
-    // GRIND_COMPLETE: additional time mode pulse
+    // GRIND_COMPLETE: top-up pulse
     if (ui_manager_->grind_controller->can_pulse()) {
         LOG_BLE("[UIManager] Pulse button clicked - requesting additional pulse\n");
         ui_manager_->grind_controller->start_additional_pulse();
@@ -387,7 +387,7 @@ void GrindingUIController::update_button_layout() {
     bool is_time_grind_paused = in_time_grinding && ui_manager_->grind_controller->is_grind_paused();
 
     bool should_show_pulse = (ui_manager_->state_machine->is_state(UIState::GRIND_COMPLETE) &&
-                              ui_manager_->current_mode == GrindMode::TIME);
+                              ui_manager_->current_mode != GrindMode::MANUAL);
 
     if (in_purge_confirm || in_time_grinding || should_show_pulse) {
         // Dual button layout: left=STOP/CANCEL, right=context-specific action

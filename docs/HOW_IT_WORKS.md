@@ -41,9 +41,11 @@ The system uses a **zero-shot learning algorithm** requiring no prior knowledge 
    - Mechanical instability detection (3+ sudden weight drops triggers diagnostic)
    - Repeats until target ± tolerance reached
 
-5. **Time Mode Additional Pulses**
-   - Dedicated `TIME_ADDITIONAL_PULSE` phase for post-completion grinding
-   - 100ms fixed pulse duration
+5. **Top-up Pulses After Completion**
+   - Dedicated `TIME_ADDITIONAL_PULSE` phase for post-completion grinding in weight and time mode
+   - Time mode: 100ms fixed pulse duration
+   - Weight mode: motor latency + 100ms, then the scale settles and the final weight is re-measured; refused when the cup is no longer on the scale
+   - The history record is closed before the first top-up and is not changed by it
    - Split-button UI: OK + PULSE buttons on completion screen
 
 **Motor Response Latency Model:**

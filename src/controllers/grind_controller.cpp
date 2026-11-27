@@ -230,6 +230,11 @@ bool GrindController::start_grind(float target, uint32_t time_ms, GrindMode grin
     // Initialize pulse tracking
     additional_pulse_count = 0;
     pulse_duration_ms = GRIND_TIME_PULSE_DURATION_MS;
+    if (mode == GrindMode::WEIGHT) {
+        // Grounds only start flowing once the motor latency has elapsed, so a
+        // weight top-up adds it to keep the same productive pulse length.
+        pulse_duration_ms += static_cast<uint32_t>(motor_response_latency_ms);
+    }
     control_loop_paused_ = false;
 
     reset_mechanical_anomaly_count();
@@ -271,6 +276,12 @@ void GrindController::return_to_idle() {
     const auto control_lock = lock_control();
     // This is called by the UI to acknowledge a completed or timed-out grind
     // and return the controller to the IDLE state.
+    if (phase == GrindPhase::TIME_ADDITIONAL_PULSE) {
+        // The grind behind a top-up pulse is already finished and recorded,
+        // so acknowledging it while the pulse runs or settles just ends it.
+        stop_grind();
+        return;
+    }
     if (phase == GrindPhase::COMPLETED || phase == GrindPhase::TIMEOUT) {
         // Do not release the single session buffer until its terminal record
         // has been consumed. A full queue is drained and retried on this caller.
@@ -636,8 +647,7 @@ void GrindController::update() {
             break;
             
         case GrindPhase::TIME_ADDITIONAL_PULSE:
-            // Check for additional pulse completion
-            if (grinder && grinder->is_pulse_complete()) {
+            if (grinder && grinder->is_pulse_complete() && additional_pulse_settled(loop_data)) {
                 LOG_BLE("[%lums CONTROLLER] Additional pulse #%d completed, weight: %.2fg\n", 
                         millis(), additional_pulse_count, weight_sensor ? weight_sensor->get_display_weight() : 0.0f);
                 
@@ -679,6 +689,9 @@ void GrindController::update() {
         phase != GrindPhase::IDLE && phase != GrindPhase::INITIALIZING &&
         phase != GrindPhase::SETUP && phase != GrindPhase::TARING &&
         phase != GrindPhase::TARE_CONFIRM &&
+        // A top-up pulse is self-limiting; lifting the cup after it must not
+        // turn the already finished grind into an error.
+        phase != GrindPhase::TIME_ADDITIONAL_PULSE &&
         grinder->is_motor_settled();
     bool vessel_removed = false;
     if (net_weight_guard_active) {
@@ -767,6 +780,28 @@ void GrindController::monitor_mechanical_instability(const GrindLoopData& loop_d
     }
 
     last_mechanical_weight_ = loop_data.current_weight;
+}
+
+bool GrindController::additional_pulse_settled(const GrindLoopData& loop_data) {
+    // Time mode has no target to compare against, so it finishes with the pulse.
+    if (mode != GrindMode::WEIGHT || !weight_sensor) return true;
+    // A lifted cup keeps the dose measured before it was removed.
+    if (net_weight_removal_guard_.is_removed(loop_data.current_weight)) return true;
+
+    // Re-measure only from samples taken after the grounds have landed.
+    const unsigned long elapsed_ms = loop_data.now - phase_start_time;
+    const unsigned long min_wait_ms =
+        pulse_duration_ms +
+        adaptive_grind::compute_settling_delay_ms(grind_latency_ms, GRIND_MOTOR_SETTLING_TIME_MS, 1) +
+        GRIND_SCALE_PRECISION_SETTLING_TIME_MS;
+    if (elapsed_ms < min_wait_ms) return false;
+    if (elapsed_ms < GRIND_SCALE_SETTLING_TIMEOUT_MS &&
+        !weight_sensor->check_settling_complete(GRIND_SCALE_PRECISION_SETTLING_TIME_MS)) {
+        return false;
+    }
+
+    final_weight = weight_sensor->get_weight_high_latency();
+    return true;
 }
 
 void GrindController::final_measurement(const GrindLoopData& loop_data) {
@@ -945,8 +980,8 @@ void GrindController::switch_phase(GrindPhase new_phase, const GrindLoopData& lo
         event_data.final_weight = (final_weight > 0) ? final_weight : 
                                  (weight_sensor ? weight_sensor->get_weight_high_latency() : 0.0f);
         
-        // For time mode, also indicate pulse availability
-        if (mode == GrindMode::TIME) {
+        // Finished time and weight grinds can be topped up with extra pulses
+        if (mode != GrindMode::MANUAL) {
             event_data.can_pulse = true;
             event_data.pulse_count = additional_pulse_count;
             event_data.pulse_duration_ms = pulse_duration_ms;
@@ -1296,7 +1331,7 @@ void GrindController::start_additional_pulse() {
         return;
     }
 
-    // Extra time-mode pulses are separate from the completed history record.
+    // Extra pulses are separate from the completed history record.
     // Finish that record before resuming motor activity or logging new samples.
     process_queued_flash_operations();
     if (!queue_terminal_session()) return;
@@ -1304,7 +1339,6 @@ void GrindController::start_additional_pulse() {
     
     additional_pulse_count++;
 
-    // Update statistics for time mode pulse
     statistics_manager.update_time_pulse();
 
     // Reset timeout timer to prevent timeout during additional pulses
@@ -1329,10 +1363,18 @@ void GrindController::start_additional_pulse() {
 
 bool GrindController::can_pulse() const {
     const auto control_lock = lock_control();
-    // Only allow pulses in time mode when grind is completed and not in pulse phase
-    return mode == GrindMode::TIME &&
+    // A finished time or weight grind can be topped up, but never while a
+    // pulse is still running or settling. A weight top-up also needs the cup
+    // to still be on the scale to receive the grounds.
+    return mode != GrindMode::MANUAL &&
            phase == GrindPhase::COMPLETED &&
-           operation_interlock().owns(operation_token_);
+           operation_interlock().owns(operation_token_) &&
+           (mode != GrindMode::WEIGHT || vessel_on_scale());
+}
+
+bool GrindController::vessel_on_scale() const {
+    return weight_sensor && weight_sensor->has_recent_sample() &&
+           !net_weight_removal_guard_.is_removed(weight_sensor->get_weight_low_latency());
 }
 
 //==============================================================================

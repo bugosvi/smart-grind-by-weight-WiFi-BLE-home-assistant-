@@ -153,7 +153,7 @@ private:
     QueueHandle_t log_queue;
     static const int LOG_QUEUE_SIZE = 20;
     
-    // Time mode pulse tracking
+    // Top-up pulse tracking
     int additional_pulse_count;
     uint32_t pulse_duration_ms;
     
@@ -232,8 +232,8 @@ public:
     void continue_from_purge(); // Called by UI to continue from PURGE_CONFIRM to PREDICTIVE
     void update(); // Core 0 main control method - runs at fixed RTOS interval
     
-    // Time mode pulse functionality
-    void start_additional_pulse(); // Start an additional 100ms pulse in time mode
+    // Top-up pulses after a completed time or weight grind
+    void start_additional_pulse(); // One short pulse; weight mode then re-measures the dose
     bool can_pulse() const; // Check if additional pulses are allowed
     int get_additional_pulse_count() const { const auto control_lock = lock_control(); return additional_pulse_count; }
 
@@ -340,6 +340,8 @@ private:
     bool queue_terminal_session();
     void switch_phase(GrindPhase new_phase, const GrindLoopData& loop_data = {});
     void final_measurement(const GrindLoopData& loop_data);
+    bool additional_pulse_settled(const GrindLoopData& loop_data);
+    bool vessel_on_scale() const;
     void monitor_mechanical_instability(const GrindLoopData& loop_data);
     void abort_no_flow(const GrindLoopData& loop_data);
 
