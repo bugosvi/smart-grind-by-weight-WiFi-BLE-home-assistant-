@@ -4,6 +4,18 @@ Run this bench checklist on the ESP32-S3 board **before connecting mains power (
 
 For full on-grinder validation after installing the controller into the grinder, continue with [HARDWARE_ACCEPTANCE.md](HARDWARE_ACCEPTANCE.md).
 
+### Quick Automated Bench Runner (`tools/bench_test.py`)
+
+Once the board is plugged into USB (and/or connected to Wi-Fi), run the automated flash + boot-log + HTTP/WebSocket verification script first:
+
+```bash
+# Flash V1 or V2 over USB, check boot logs, auto-detect IP, and test all APIs + /ws:
+python3 tools/bench_test.py --flash --hardware v2   # or --hardware v1
+
+# Or test an already-flashed board on your Wi-Fi:
+python3 tools/bench_test.py --host smartgrind.local
+```
+
 ---
 
 ## Stage 0 — Hardware Revision Verification & Initial USB Flash
