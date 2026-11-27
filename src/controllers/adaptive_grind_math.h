@@ -164,12 +164,37 @@ inline float compute_pulse_target_error(float target_weight_g,
     return std::max(0.0f, aim_weight_g - settled_weight_g);
 }
 
+// Decide whether the coast observation staged after PREDICTIVE may be committed.
+// Successful shots always teach. An overshoot teaches only when the predictive
+// stage alone already landed past the target: that is direct evidence the coast
+// was underestimated, and ignoring it would repeat the same overshoot on every
+// following shot. Overshoots produced later by a correction pulse are not coast
+// evidence and stay excluded, as do aborted, timed-out and max-pulse sessions.
+inline bool should_commit_coast_observation(bool shot_succeeded,
+                                            bool shot_overshot,
+                                            float predictive_settled_weight_g,
+                                            float target_weight_g,
+                                            float tolerance_g) {
+    if (shot_succeeded) {
+        return true;
+    }
+    if (!shot_overshot || !std::isfinite(predictive_settled_weight_g) ||
+        !std::isfinite(target_weight_g) || !std::isfinite(tolerance_g)) {
+        return false;
+    }
+    return (predictive_settled_weight_g - target_weight_g) > tolerance_g;
+}
+
 // Update cross-shot coast time estimate right after the PREDICTIVE phase settles
 // (before the first correction pulse). Safe against anomalies / negative deltas.
+// `predictive_overshot` selects fast-attack learning: too much coffee cannot be
+// taken back, while a too-early stop only costs one correction pulse, so an
+// observed overshoot is adopted in full instead of being averaged in slowly.
 inline bool update_learned_coast_from_predictive(AdaptiveCoastState& state,
                                                  float predictive_end_weight_g,
                                                  float settled_weight_g,
-                                                 float predictive_flow_gps) {
+                                                 float predictive_flow_gps,
+                                                 bool predictive_overshot = false) {
     if (!state.enabled) {
         return false;
     }
@@ -193,9 +218,11 @@ inline bool update_learned_coast_from_predictive(AdaptiveCoastState& state,
         state.reference_flow_gps = predictive_flow_gps;
         state.sample_count = 1;
     } else {
-        state.learned_coast_time_ms =
+        const float blended_coast_ms =
             (1.0f - kCoastLearnAlpha) * state.learned_coast_time_ms +
             kCoastLearnAlpha * observed_coast_ms;
+        state.learned_coast_time_ms =
+            predictive_overshot ? std::max(blended_coast_ms, observed_coast_ms) : blended_coast_ms;
         state.reference_flow_gps =
             (1.0f - kCoastLearnAlpha) * state.reference_flow_gps +
             kCoastLearnAlpha * predictive_flow_gps;

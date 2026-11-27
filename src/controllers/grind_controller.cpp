@@ -906,16 +906,24 @@ void GrindController::switch_phase(GrindPhase new_phase, const GrindLoopData& lo
             } else if (pulse_attempts >= GRIND_MAX_PULSE_ATTEMPTS && fabsf(error) > tolerance) {
                 session_result = GrindSessionResult::MAX_PULSES;
             }
-            if (session_result == GrindSessionResult::SUCCESS &&
-                pending_coast_valid_ &&
-                adaptive_coast_state_.algorithm_enabled) {
+            const bool shot_overshot = session_result == GrindSessionResult::OVERSHOOT;
+            if (pending_coast_valid_ &&
+                adaptive_coast_state_.algorithm_enabled &&
+                adaptive_grind::should_commit_coast_observation(
+                    session_result == GrindSessionResult::SUCCESS,
+                    shot_overshot,
+                    pending_coast_settled_g_,
+                    target_weight,
+                    tolerance)) {
                 if (adaptive_grind::update_learned_coast_from_predictive(
                         adaptive_coast_state_,
                         pending_coast_end_g_,
                         pending_coast_settled_g_,
-                        pending_coast_flow_gps_)) {
+                        pending_coast_flow_gps_,
+                        shot_overshot)) {
                     adaptive_coast_dirty_ = true;
-                    queue_log_message("[ADAPTIVE] Coast committed: %.1fms (ref flow: %.2fg/s, n=%lu)\n",
+                    queue_log_message("[ADAPTIVE] Coast committed%s: %.1fms (ref flow: %.2fg/s, n=%lu)\n",
+                                      shot_overshot ? " after overshoot" : "",
                                       adaptive_coast_state_.learned_coast_time_ms,
                                       adaptive_coast_state_.reference_flow_gps,
                                       static_cast<unsigned long>(adaptive_coast_state_.sample_count));

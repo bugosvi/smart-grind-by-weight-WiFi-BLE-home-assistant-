@@ -280,6 +280,57 @@ int main() {
         assert(r.pulses <= 6);
     }
 
+    // 8. Coast observation commit gate: successful shots and coast-driven overshoots
+    //    teach; pulse-driven overshoots, aborts and max-pulse sessions do not.
+    assert(should_commit_coast_observation(true, false, 17.60f, 18.0f, 0.03f));
+    assert(should_commit_coast_observation(false, true, 18.10f, 18.0f, 0.03f));
+    assert(!should_commit_coast_observation(false, true, 17.60f, 18.0f, 0.03f));
+    assert(!should_commit_coast_observation(false, true, 18.02f, 18.0f, 0.03f));
+    assert(!should_commit_coast_observation(false, false, 18.10f, 18.0f, 0.03f));
+    assert(!should_commit_coast_observation(false, true, NAN, 18.0f, 0.03f));
+
+    // Fast-attack adopts an observed overshoot in full; normal shots keep the gentle EMA.
+    AdaptiveCoastState attack_state;
+    assert(update_learned_coast_from_predictive(attack_state, 17.0f, 17.5f, 2.0f));
+    assert(std::fabs(attack_state.learned_coast_time_ms - 250.0f) < 1.0f);
+    assert(update_learned_coast_from_predictive(attack_state, 17.0f, 17.84f, 2.0f, true));
+    assert(std::fabs(attack_state.learned_coast_time_ms - 420.0f) < 1.0f);
+    assert(update_learned_coast_from_predictive(attack_state, 17.0f, 17.5f, 2.0f, true));
+    assert(std::fabs(attack_state.learned_coast_time_ms - 369.0f) < 1.0f); // never raised by a shorter coast
+
+    // 9. Closed loop with the firmware commit gate: the true coast grows at an
+    //    unchanged flow rate (retention / humidity). The controller may overshoot
+    //    once, must then re-learn, and must never repeat the overshoot.
+    {
+        AdaptiveCoastState gated_state;
+        const float flow_gps = 2.0f;
+        const float target_g = 18.0f;
+        const float tolerance_g = 0.03f;
+        int overshoots_after_change = 0;
+        std::printf("\nCoast drift recovery (commit gate modelled):\n");
+        for (int shot = 1; shot <= 8; ++shot) {
+            const float true_coast_ms = shot < 4 ? 250.0f : 600.0f;
+            const float lead_g = compute_motor_stop_target_weight(500.0f, 1.0f, flow_gps, gated_state);
+            const float stop_g = target_g - lead_g;
+            const float settled_g = stop_g + (true_coast_ms / 1000.0f) * flow_gps;
+            const float predictive_error_g = settled_g - target_g;
+            // Undershoot is closed by correction pulses, so the shot ends as SUCCESS.
+            const bool overshot = predictive_error_g > tolerance_g;
+            if (should_commit_coast_observation(!overshot, overshot, settled_g, target_g, tolerance_g)) {
+                update_learned_coast_from_predictive(gated_state, stop_g, settled_g, flow_gps, overshot);
+            }
+            std::printf("  shot %d: true coast %3.0fms -> predictive error %+.3fg, learned %3.0fms\n",
+                        shot, true_coast_ms, predictive_error_g, gated_state.learned_coast_time_ms);
+            if (shot < 4) {
+                assert(!overshot);
+            } else if (overshot) {
+                ++overshoots_after_change;
+            }
+        }
+        assert(overshoots_after_change == 1);
+        assert(std::fabs(gated_state.learned_coast_time_ms - 600.0f) < 1.0f);
+    }
+
     std::printf("\nadaptive_grind_math_test PASSED\n");
     return 0;
 }

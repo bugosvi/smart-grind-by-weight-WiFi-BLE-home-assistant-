@@ -190,8 +190,9 @@ void WeightGrindStrategy::run_pulse_decision_phase(GrindController& controller,
     }
 
     if (adaptive_on) {
-        // Stage a coast observation once predictive settles (committed ONLY if the
-        // shot completes successfully, and only when predictive flow window >= 1000ms).
+        // Stage a coast observation once predictive settles, only when the predictive
+        // flow window is >= 1000ms. The controller commits it at completion if
+        // adaptive_grind::should_commit_coast_observation() accepts the shot result.
         if (controller.pulse_attempts == 0 && !controller.predictive_coast_learned_this_shot_) {
             controller.predictive_coast_learned_this_shot_ = true;
             if (controller.last_predictive_flow_window_ms_ >= adaptive_grind::kMinCoastLearnFlowWindowMs &&
