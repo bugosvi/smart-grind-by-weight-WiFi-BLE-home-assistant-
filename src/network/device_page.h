@@ -106,6 +106,7 @@ button{cursor:pointer}
 .grind-control{width:60px;height:60px;padding:0;border-radius:50%;font-size:24px;line-height:1}
 .grind-control.stop{background:var(--danger);color:#fff}
 .message{min-height:20px;color:var(--muted);font-size:13.5px;margin-top:10px}
+#commandMessage{margin-bottom:14px}
 .divider{border-top:1px solid var(--line);margin:18px 0}
 .note-banner{display:none;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;margin-bottom:16px;border-radius:14px;background:color-mix(in srgb,var(--accent) 10%,var(--surface));border:1px solid color-mix(in srgb,var(--accent) 35%,var(--line))}
 .note-banner.show{display:flex}
@@ -277,6 +278,13 @@ textarea{resize:vertical;min-height:92px;line-height:1.45}
       <button class="dose" data-profile="2" disabled><span>Custom</span><strong class="num">—</strong></button>
     </div>
 
+    <div class="actions">
+      <button id="grindButton" class="btn grind-control" disabled aria-label="Start grind" title="Start grind">&#9654;</button>
+      <button id="tareButton" class="btn secondary" disabled>Tare scale</button>
+      <button id="dismissButton" class="btn secondary" disabled>Dismiss result</button>
+    </div>
+    <div id="commandMessage" class="message"></div>
+
     <div class="grid metrics">
       <div class="metric"><label>Weight</label><strong id="weight" class="num">—</strong><small>grams</small></div>
       <div class="metric"><label>Flow rate</label><strong id="flow" class="num">—</strong><small>g/s</small></div>
@@ -290,12 +298,6 @@ textarea{resize:vertical;min-height:92px;line-height:1.45}
       </div>
       <div class="chartwrap"><canvas id="liveChart"></canvas></div>
       <div class="progress"><i id="progressBar"></i></div>
-      <div class="actions">
-        <button id="grindButton" class="btn grind-control" disabled aria-label="Start grind" title="Start grind">&#9654;</button>
-        <button id="tareButton" class="btn secondary" disabled>Tare scale</button>
-        <button id="dismissButton" class="btn secondary" disabled>Dismiss result</button>
-      </div>
-      <div id="commandMessage" class="message"></div>
     </div>
   </section>
 
