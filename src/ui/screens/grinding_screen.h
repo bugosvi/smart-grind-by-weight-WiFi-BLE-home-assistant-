@@ -4,6 +4,7 @@
 #include "grinding_screen_chart.h"
 #include "grinding_screen_portafilter.h"
 #include <Preferences.h>
+#include <cmath>
 #include "../../controllers/grind_mode.h"
 
 // Unified grinding screen that wraps all layout implementations
@@ -43,7 +44,7 @@ public:
     void set_mode(GrindMode mode);
     void set_chart_time_prediction(uint32_t predicted_time_ms);
     void update_phase(GrindPhase phase, bool paused = false);
-    void set_completed(bool completed, bool overshoot = false);
+    void set_completed(bool completed, bool overshoot = false, float final_weight_g = NAN);
     void set_error_state(bool error);
 
     // ADDED: Public accessors for individual screen objects

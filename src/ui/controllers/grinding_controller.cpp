@@ -716,7 +716,7 @@ void GrindingUIController::enter_grind_complete_state() {
     const bool overshoot =
         (ui_manager_->grind_controller &&
          ui_manager_->grind_controller->get_last_session_result() == GrindSessionResult::OVERSHOOT);
-    ui_manager_->grinding_screen.set_completed(true, overshoot);
+    ui_manager_->grinding_screen.set_completed(true, overshoot, final_grind_weight_);
     ui_manager_->grinding_screen.update_profile_name(ui_manager_->profile_controller->get_current_name());
     ui_manager_->grinding_screen.set_mode(ui_manager_->current_mode);
     ui_manager_->grinding_screen.update_current_weight(final_grind_weight_);

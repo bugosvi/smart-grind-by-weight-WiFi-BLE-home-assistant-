@@ -59,6 +59,17 @@ constexpr int16_t kMoundClipTopInset = 2;
 constexpr float kMoundEaseRate = 0.22f;
 constexpr float kMoundSnapFrac = 0.002f;
 
+// Finish pulse: one ring that expands from the basket and fades when a grind
+// completes. Drawn on the screen (not the stage) so it is not clipped.
+constexpr int16_t kFinishRingCenterY = kStageY + (kRimY + kBasketBottomY) / 2;
+constexpr int16_t kFinishRingStartD = 44;
+constexpr int16_t kFinishRingEndD = 104;
+constexpr int16_t kFinishRingWidth = 3;
+constexpr int8_t kFinishRingFrames = 15;  // 600 ms at the 40 ms animation period
+
+constexpr uint32_t kColorInTolerance = 0x00E676;
+constexpr uint32_t kColorOvershoot = 0xFFB300;
+
 constexpr uint32_t kCoffeeShades[4] = {0x5C3317, 0x7A4622, 0x9C6134, 0xBA7B47};
 
 int32_t font_baseline_offset(const lv_font_t* font) {
@@ -357,6 +368,15 @@ void GrindingScreenPortafilter::create() {
     lv_obj_remove_style(tare_spinner_, nullptr, LV_PART_KNOB);
     lv_obj_add_flag(tare_spinner_, LV_OBJ_FLAG_HIDDEN);
 
+    // --- FINISH PULSE RING (below the weight row in z-order) ---
+    finish_ring_ = lv_obj_create(screen_);
+    lv_obj_set_style_bg_opa(finish_ring_, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(finish_ring_, kFinishRingWidth, 0);
+    lv_obj_set_style_radius(finish_ring_, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_pad_all(finish_ring_, 0, 0);
+    lv_obj_clear_flag(finish_ring_, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(finish_ring_, LV_OBJ_FLAG_HIDDEN);
+
     // --- LIVE WEIGHT READOUT WITH TARGET BESIDE IT ---
     weight_label_ = lv_label_create(screen_);
     lv_label_set_text(weight_label_, "0.0g");
@@ -510,7 +530,14 @@ void GrindingScreenPortafilter::set_target_side_text(const char* text) {
 
 void GrindingScreenPortafilter::refresh_side_label() {
     if (!side_label_) return;
-    const char* text = manual_mode_ ? "" : target_side_text_;
+    const bool show_result = completed_ && result_side_text_[0] != '\0';
+    const char* text = manual_mode_ ? "" : (show_result ? result_side_text_ : target_side_text_);
+    const uint32_t color = !show_result ? THEME_COLOR_TEXT_SECONDARY
+                                        : (overshoot_ ? kColorOvershoot : kColorInTolerance);
+    if (color != side_color_) {
+        side_color_ = color;
+        lv_obj_set_style_text_color(side_label_, lv_color_hex(color), 0);
+    }
     if (std::strcmp(displayed_side_text_, text) == 0) {
         return;
     }
@@ -634,11 +661,11 @@ void GrindingScreenPortafilter::refresh_visual_accent() {
         series_color = 0xFF5252;
     } else if (completed_) {
         if (overshoot_) {
-            weight_color = 0xFFB300;
+            weight_color = kColorOvershoot;
             basket_color = 0xFFA000;
             series_color = 0xFFA000;
         } else {
-            weight_color = 0x00E676;
+            weight_color = kColorInTolerance;
             basket_color = 0x00C853;
             series_color = 0x00C853;
         }
@@ -727,9 +754,24 @@ void GrindingScreenPortafilter::update_phase(GrindPhase phase, bool paused) {
     }
 }
 
-void GrindingScreenPortafilter::set_completed(bool completed, bool overshoot) {
+void GrindingScreenPortafilter::set_completed(bool completed, bool overshoot, float final_weight_g) {
+    const bool just_completed = completed && !completed_;
     completed_ = completed;
     overshoot_ = completed ? overshoot : false;
+
+    // A finished weight grind swaps the target for the deviation from it.
+    result_side_text_[0] = '\0';
+    if (completed_ && !time_mode_ && !manual_mode_ && std::isfinite(final_weight_g)) {
+        std::snprintf(result_side_text_, sizeof(result_side_text_), "%+.2fg",
+                      static_cast<double>(final_weight_g - target_weight_g_));
+    }
+    refresh_side_label();
+    if (just_completed) {
+        start_finish_pulse();
+    } else if (!completed_) {
+        stop_finish_pulse();
+    }
+
     if (completed_) {
         error_ = false;
         paused_ = false;
@@ -933,6 +975,39 @@ void GrindingScreenPortafilter::apply_mound_shape(const MoundShape& shape) {
     }
 }
 
+void GrindingScreenPortafilter::start_finish_pulse() {
+    if (!finish_ring_) return;
+    lv_obj_set_style_border_color(
+        finish_ring_, lv_color_hex(overshoot_ ? kColorOvershoot : kColorInTolerance), 0);
+    finish_frame_ = 0;
+}
+
+void GrindingScreenPortafilter::stop_finish_pulse() {
+    finish_frame_ = -1;
+    if (finish_ring_) {
+        lv_obj_add_flag(finish_ring_, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+void GrindingScreenPortafilter::advance_finish_pulse() {
+    if (finish_frame_ < 0 || !finish_ring_) return;
+    if (finish_frame_ >= kFinishRingFrames) {
+        stop_finish_pulse();
+        return;
+    }
+    // Ease-out growth with a linear fade, so the ring slows as it disappears.
+    const float progress = static_cast<float>(finish_frame_) / kFinishRingFrames;
+    const float eased = 1.0f - (1.0f - progress) * (1.0f - progress);
+    const int16_t diameter = static_cast<int16_t>(
+        kFinishRingStartD + eased * (kFinishRingEndD - kFinishRingStartD));
+    lv_obj_set_size(finish_ring_, diameter, diameter);
+    lv_obj_set_pos(finish_ring_, kCenterX - diameter / 2, kFinishRingCenterY - diameter / 2);
+    lv_obj_set_style_border_opa(finish_ring_,
+                                static_cast<lv_opa_t>(LV_OPA_COVER * (1.0f - progress)), 0);
+    lv_obj_clear_flag(finish_ring_, LV_OBJ_FLAG_HIDDEN);
+    ++finish_frame_;
+}
+
 uint32_t GrindingScreenPortafilter::next_rand() {
     // Fast xorshift32 (zero heap, zero libc rand contention)
     uint32_t x = rng_state_;
@@ -969,6 +1044,7 @@ void GrindingScreenPortafilter::step_animation() {
     if (!visible_) return;
 
     advance_mound();
+    advance_finish_pulse();
 
     // Spin taring arc smoothly while taring
     if (taring_ && tare_spinner_) {

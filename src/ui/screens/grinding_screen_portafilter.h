@@ -1,6 +1,7 @@
 #pragma once
 #include "grinding_screen_base.h"
 #include "../../controllers/grind_events.h"
+#include <cmath>
 #include <cstdint>
 
 // Vector-only LVGL 9 grinding screen displaying coffee falling from a grinder
@@ -29,7 +30,9 @@ public:
     void set_time_mode(bool enabled);
     void set_manual_mode(bool enabled);
     void update_phase(GrindPhase phase, bool paused = false);
-    void set_completed(bool completed, bool overshoot = false);
+    // `final_weight_g` is the settled weight of a finished weight grind; the
+    // screen then shows its deviation from the target next to the readout.
+    void set_completed(bool completed, bool overshoot = false, float final_weight_g = NAN);
     void set_error_state(bool error);
 
 private:
@@ -71,6 +74,7 @@ private:
     // Live weight readout with the target beside it + mini-chart + status badge
     lv_obj_t* weight_label_ = nullptr;
     lv_obj_t* side_label_ = nullptr;
+    lv_obj_t* finish_ring_ = nullptr;
     const lv_font_t* weight_font_ = &lv_font_montserrat_56;
     lv_obj_t* chart_ = nullptr;
     lv_chart_series_t* weight_series_ = nullptr;
@@ -117,7 +121,10 @@ private:
     char displayed_weight_text_[16]{};
     char displayed_info_text_[64]{};
     char target_side_text_[20]{};
+    char result_side_text_[20]{};
     char displayed_side_text_[20]{};
+    uint32_t side_color_ = 0;
+    int8_t finish_frame_ = -1;      // -1 while no finish pulse is playing
     char displayed_flow_text_[24]{};
     char displayed_status_text_[20]{};
 
@@ -135,6 +142,9 @@ private:
     void set_target_side_text(const char* text);
     void refresh_side_label();
     void layout_weight_row();
+    void start_finish_pulse();
+    void stop_finish_pulse();
+    void advance_finish_pulse();
     void hide_all_particles();
     void reset_particle(Particle& p, float flow_norm);
     uint32_t next_rand();

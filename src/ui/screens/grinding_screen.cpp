@@ -165,8 +165,8 @@ void GrindingScreen::update_phase(GrindPhase phase, bool paused) {
     portafilter_screen.update_phase(phase, paused);
 }
 
-void GrindingScreen::set_completed(bool completed, bool overshoot) {
-    portafilter_screen.set_completed(completed, overshoot);
+void GrindingScreen::set_completed(bool completed, bool overshoot, float final_weight_g) {
+    portafilter_screen.set_completed(completed, overshoot, final_weight_g);
 }
 
 void GrindingScreen::set_error_state(bool error) {
