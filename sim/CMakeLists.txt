@@ -92,6 +92,13 @@ target_include_directories(adaptive-grind-math-test PRIVATE
     "${PROJECT_ROOT}/src"
 )
 
+add_executable(morning-note-policy-test
+    morning_note_policy_test.cpp
+)
+target_include_directories(morning-note-policy-test PRIVATE
+    "${PROJECT_ROOT}/src"
+)
+
 if(MSVC)
     target_compile_options(smart-grind-sim PRIVATE /W4 /permissive-)
 endif()
@@ -117,4 +124,6 @@ if(BUILD_TESTING)
     set_tests_properties(remote_grind_safety PROPERTIES TIMEOUT 5)
     add_test(NAME adaptive_grind_math COMMAND adaptive-grind-math-test)
     set_tests_properties(adaptive_grind_math PROPERTIES TIMEOUT 5)
+    add_test(NAME morning_note_policy COMMAND morning-note-policy-test)
+    set_tests_properties(morning_note_policy PROPERTIES TIMEOUT 5)
 endif()

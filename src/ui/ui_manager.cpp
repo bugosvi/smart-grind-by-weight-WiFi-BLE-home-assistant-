@@ -9,6 +9,7 @@
 #include "../controllers/grind_mode_traits.h"
 #ifndef SMART_GRIND_SIM
 #include "../network/device_api.h"
+#include "../system/morning_note_store.h"
 #endif
 #include <utility>
 // Static instance pointer for grind event callbacks
@@ -61,6 +62,11 @@ void UIManager::init(HardwareManager* hw_mgr, StateMachine* sm,
     
     // Register grind event callback
     grind_controller->set_ui_event_callback(GrindingUIController::dispatch_event);
+
+    // Initialize morning note store before screen timeout runs
+#ifndef SMART_GRIND_SIM
+    morning_note_store.init();
+#endif
 
     // Show startup screensaver only on normal ready boot, never over boot warnings.
     if (screensaver_controller_ &&
@@ -149,6 +155,14 @@ void UIManager::update() {
             screen_timeout_controller_->apply_runtime_settings(true)) && runtime_applied;
         if (ready_controller_) ready_controller_->refresh_profiles();
         ready_screen.set_active_tab(current_tab);
+        if (hardware_manager && hardware_manager->get_preferences()) {
+            const int saved_layout = hardware_manager->get_preferences()->getInt(
+                "grind_layout", static_cast<int>(grinding_screen.get_layout()));
+            if (saved_layout >= static_cast<int>(GrindScreenLayout::MINIMAL_ARC) &&
+                saved_layout <= static_cast<int>(GrindScreenLayout::PORTAFILTER)) {
+                grinding_screen.set_layout(static_cast<GrindScreenLayout>(saved_layout));
+            }
+        }
         if (menu_screen.is_visible()) {
             menu_screen.update_brightness_sliders();
             menu_screen.update_bluetooth_startup_toggle();
@@ -263,6 +277,9 @@ void UIManager::switch_to_state(UIState new_state) {
             break;
 
         case UIState::GRIND_COMPLETE:
+#ifndef SMART_GRIND_SIM
+            morning_note_store.on_grind_completed();
+#endif
             grinding_screen.show();
             break;
 

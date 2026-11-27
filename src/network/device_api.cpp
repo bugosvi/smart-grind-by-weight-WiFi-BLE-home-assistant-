@@ -995,9 +995,24 @@ bool DeviceApi::queue_settings_update(AsyncWebServerRequest* request) {
                                       ? value("gaggimate_host")
                                       : gaggimate_status_client.configured_host();
     strncpy(settings.gaggimate_host, gaggimate_host.c_str(), sizeof(settings.gaggimate_host) - 1);
+    bool grind_layout_valid = true;
+    if (request->hasParam("grind_layout", true)) {
+        const String layout_str = value("grind_layout");
+        settings.has_grind_layout = true;
+        if (layout_str == "arc" || layout_str == "0") {
+            settings.grind_layout = 0;
+        } else if (layout_str == "chart" || layout_str == "1") {
+            settings.grind_layout = 1;
+        } else if (layout_str == "portafilter" || layout_str == "2") {
+            settings.grind_layout = 2;
+        } else {
+            grind_layout_valid = false;
+        }
+    }
     settings.bluetooth_startup = form_bool(value("bluetooth_startup"));
 
-    bool valid = settings.current_profile >= 0 && settings.current_profile < USER_PROFILE_COUNT &&
+    bool valid = grind_layout_valid &&
+                 settings.current_profile >= 0 && settings.current_profile < USER_PROFILE_COUNT &&
                  settings.grind_mode >= 0 && settings.grind_mode <= 1 &&
                  std::isfinite(settings.auto_start_threshold_g) &&
                  settings.auto_start_threshold_g >= USER_AUTO_GRIND_TRIGGER_MIN_G &&
@@ -1081,6 +1096,9 @@ bool DeviceApi::apply_settings(const DeviceSettingsUpdate& update) {
     saved = (grinder->putInt(GrindController::PREF_KEY_GRINDER_MODE, settings.purge_mode) == sizeof(int32_t)) && saved;
     saved = (grinder->putFloat(GrindController::PREF_KEY_GRINDER_AMOUNT_G, settings.purge_amount_g) == sizeof(float)) && saved;
     saved = (grinder->putFloat(GrindController::PREF_KEY_GRIND_FRESHNESS_HOURS, settings.freshness_hours) == sizeof(float)) && saved;
+    if (settings.has_grind_layout) {
+        saved = (grinder->putInt("grind_layout", settings.grind_layout) == sizeof(int32_t)) && saved;
+    }
     saved = grind_controller_->save_coast_ratio(settings.coast_ratio) && saved;
     saved = grind_controller_->save_motor_latency(settings.motor_latency_ms) && saved;
 
@@ -1191,6 +1209,9 @@ void DeviceApi::refresh_settings_cache() {
         screensaver_preferences.end();
     }
     const String gaggimate_host = gaggimate_status_client.configured_host();
+    const int saved_layout = grinder->getInt("grind_layout", 0);
+    const char* grind_layout_name =
+        saved_layout == 2 ? "portafilter" : saved_layout == 1 ? "chart" : "arc";
 
     char json[2048];
     snprintf(json, sizeof(json),
@@ -1208,7 +1229,7 @@ void DeviceApi::refresh_settings_cache() {
              "\"screensaver_idle_timeout_s\":%u,\"screensaver_startup_timeout_s\":%u,"
              "\"display_off_enabled\":%s,\"display_off_delay_s\":%u,"
              "\"screensaver_style\":\"%s\",\"has_custom_screensaver\":%s,"
-             "\"gaggimate_host\":\"%s\"},"
+             "\"gaggimate_host\":\"%s\",\"grind_layout\":\"%s\"},"
              "\"bluetooth_startup\":%s}",
              profile.current_profile,
              profile.mode == GrindMode::TIME ? "time" : "weight",
@@ -1231,7 +1252,7 @@ void DeviceApi::refresh_settings_cache() {
              screensaver_timing.display_off_enabled ? "true" : "false",
              screensaver_timing.display_off_delay_s,
              screensaver_style.c_str(), LittleFS.exists(BLE_IMAGE_FILENAME) ? "true" : "false",
-             gaggimate_host.c_str(),
+             gaggimate_host.c_str(), grind_layout_name,
              read_bool("bluetooth", "startup", true) ? "true" : "false");
     xSemaphoreTake(settings_mutex_, portMAX_DELAY);
     settings_json_cache_ = json;

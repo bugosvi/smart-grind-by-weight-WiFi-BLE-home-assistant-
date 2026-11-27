@@ -40,6 +40,8 @@ struct DeviceSettingsUpdate {
     bool has_display_off_delay_s = true;
     char screensaver_style[12] = "minimal";
     char gaggimate_host[64] = "gaggimate.local";
+    bool has_grind_layout = false;
+    int grind_layout = 0;
     bool bluetooth_startup = true;
 };
 

@@ -62,6 +62,12 @@
 #define BLE_IMAGE_FILENAME       "/screensaver.rgb565"                            // Final image file on LittleFS
 #define BLE_IMAGE_TEMP_FILENAME  "/screensaver.rgb565.tmp"                        // Temp file during upload
 
+// Scheduled Morning Note constants (stored separately from custom screensaver)
+#define MORNING_NOTE_IMAGE_FILENAME   "/note.rgb565"                              // Rendered 280x456 RGB565 note frame
+#define MORNING_NOTE_TEMP_FILENAME    "/note.rgb565.tmp"                          // Temp file during upload
+#define MORNING_NOTE_BACKUP_FILENAME  "/note.rgb565.bak"                          // Rollback backup during swap
+#define MORNING_NOTE_CONFIG_FILENAME  "/note.json"                                // Schedule & UTF-8 metadata JSON
+
 //------------------------------------------------------------------------------
 // BLE TIMEOUT SETTINGS
 //------------------------------------------------------------------------------

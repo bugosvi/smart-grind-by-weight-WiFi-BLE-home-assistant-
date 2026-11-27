@@ -116,6 +116,24 @@ void ProvisioningService::configure_routes() {
         response->addHeader("Cache-Control", "no-store");
         request->send(response);
     });
+    server_->on(AsyncURIMatcher::exact("/manifest.webmanifest"), HTTP_GET, [](AsyncWebServerRequest* request) {
+        static constexpr char MANIFEST_JSON[] PROGMEM =
+            "{\"name\":\"Smart Grind Studio\",\"short_name\":\"Smart Grind\","
+            "\"start_url\":\"/\",\"display\":\"standalone\","
+            "\"background_color\":\"#0e110e\",\"theme_color\":\"#0e110e\","
+            "\"icons\":[{\"src\":\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E"
+            "%3Crect width='64' height='64' rx='18' fill='%23253322'/%3E"
+            "%3Cpath d='M45.8 14.2c8.8 8.8 5.8 25.4-5.4 34.2S15.2 54.2 9.6 44.6 8.6 20.2 20 12.4s18.8-5 25.8 1.8Z' "
+            "fill='none' stroke='%23d4a96a' stroke-width='4'/%3E"
+            "%3Cpath d='M16.8 47c9.4-5.4 7-12.4 5-18.6-1.8-5.6-3.2-10.4 3.4-16.8' "
+            "fill='none' stroke='%23d4a96a' stroke-width='4' stroke-linecap='round'/%3E%3C/svg%3E\","
+            "\"sizes\":\"any\",\"type\":\"image/svg+xml\"}]}";
+        AsyncWebServerResponse* response = request->beginResponse(
+            200, "application/manifest+json",
+            reinterpret_cast<const uint8_t*>(MANIFEST_JSON), strlen_P(MANIFEST_JSON));
+        response->addHeader("Cache-Control", "public, max-age=3600");
+        request->send(response);
+    });
     server_->on(AsyncURIMatcher::exact("/api/v1/setup/networks"), HTTP_GET, [](AsyncWebServerRequest* request) {
         if (network_manager.state() != NetworkState::WIFI_SETUP_AP) {
             request->send(403, "application/json", "{\"error\":\"Wi-Fi setup is not active\"}");

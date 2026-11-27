@@ -21,6 +21,7 @@
 #include "../hardware/hardware_manager.h"
 #include "../logging/grind_logging.h"
 #include "../logging/diagnostic_log.h"
+#include "../system/morning_note_store.h"
 #include "network_manager.h"
 #include "device_api.h"
 #include "ota_stream.h"
@@ -84,6 +85,17 @@ struct OtaRequestState {
 struct ScreensaverUploadState {
     bool success;
     bool complete;
+};
+
+struct NoteUploadState {
+    bool success;
+    bool complete;
+};
+
+struct NoteBodyState {
+    char json[1280];
+    size_t len;
+    bool overflow;
 };
 
 constexpr uint32_t OTA_REBOOT_DELAY_MS = 1500;
@@ -183,6 +195,7 @@ void DeviceWebServer::init(HardwareManager* hardware_manager, GrindController* g
     hardware_manager_ = hardware_manager;
     grind_controller_ = grind_controller;
     bluetooth_manager_ = bluetooth_manager;
+    morning_note_store.init();
     device_api.init(&server_, hardware_manager_, grind_controller_, profile_controller);
     configure_routes();
     initialized_ = true;
@@ -384,7 +397,8 @@ bool DeviceWebServer::request_ota_preparation() {
         firmware_update_check_active_.load() ||
         ota_preparation_state_.load() != OtaPreparationState::IDLE ||
         !grind_controller_ || grind_controller_->is_active() ||
-        (bluetooth_manager_ && bluetooth_manager_->is_transfer_active())) return false;
+        (bluetooth_manager_ && bluetooth_manager_->is_transfer_active()) ||
+        morning_note_store.is_upload_active()) return false;
     const auto token = operation_interlock().try_acquire();
     if (!token) return false;
     operation_token_ = token;
@@ -606,7 +620,8 @@ void DeviceWebServer::configure_routes() {
                 }
                 if (!bluetooth_manager_ || ota_active_.load() ||
                     (grind_controller_ && grind_controller_->is_active()) ||
-                    bluetooth_manager_->is_transfer_active()) {
+                    bluetooth_manager_->is_transfer_active() ||
+                    morning_note_store.is_upload_active()) {
                     request->send(409, "application/json", "{\"error\":\"Stop the grinder and other transfers before uploading\"}");
                     return;
                 }
@@ -658,7 +673,8 @@ void DeviceWebServer::configure_routes() {
         }
         if (!bluetooth_manager_ || ota_active_.load() ||
             (grind_controller_ && grind_controller_->is_active()) ||
-            bluetooth_manager_->is_transfer_active()) {
+            bluetooth_manager_->is_transfer_active() ||
+            morning_note_store.is_upload_active()) {
             request->send(409, "application/json", "{\"error\":\"Screensaver image is busy\"}");
             return;
         }
@@ -666,6 +682,216 @@ void DeviceWebServer::configure_routes() {
         if (deleted) device_api.mark_settings_dirty();
         request->send(deleted ? 200 : 500, "application/json",
                       deleted ? "{\"deleted\":true}" : "{\"error\":\"Could not delete screensaver\"}");
+    });
+
+    server_.on(AsyncURIMatcher::exact("/api/v1/note"), HTTP_GET, [](AsyncWebServerRequest* request) {
+        AsyncWebServerResponse* response =
+            request->beginResponse(200, "application/json", morning_note_store.status_json());
+        response->addHeader("Cache-Control", "no-store");
+        request->send(response);
+    });
+
+    server_.on(
+        AsyncURIMatcher::exact("/api/v1/note"), HTTP_POST,
+        [this](AsyncWebServerRequest* request) {
+            if (!request_origin_allowed(request)) {
+                request->send(403, "application/json", "{\"error\":\"Request origin is not allowed\"}");
+                return;
+            }
+            if (ota_active_.load() || morning_note_store.is_upload_active()) {
+                request->send(409, "application/json", "{\"error\":\"Morning note storage is busy\"}");
+                return;
+            }
+            const auto* body = static_cast<const NoteBodyState*>(request->_tempObject);
+            if (body && body->overflow) {
+                request->send(400, "application/json", "{\"error\":\"Morning note payload is too large\"}");
+                return;
+            }
+            const char* json_src = nullptr;
+            String fallback_param;
+            if (body && body->len > 0) {
+                json_src = body->json;
+            } else if (request->params() == 1 && request->getParam(0)->isPost() &&
+                       request->getParam(0)->value().isEmpty()) {
+                fallback_param = request->getParam(0)->name();
+                fallback_param.trim();
+                json_src = fallback_param.c_str();
+            }
+            if (!json_src || json_src[0] != '{') {
+                request->send(400, "application/json", "{\"error\":\"JSON morning note payload is required\"}");
+                return;
+            }
+            morning_note::MorningNoteConfig parsed{};
+            uint64_t client_epoch = 0;
+            bool has_client_epoch = false;
+            if (!morning_note::parse_morning_note_json(
+                    json_src, morning_note_store.get_config(), parsed,
+                    &client_epoch, &has_client_epoch, false) ||
+                !morning_note::validate_morning_note_config(parsed)) {
+                request->send(400, "application/json", "{\"error\":\"Invalid morning note schedule or fields\"}");
+                return;
+            }
+            if (!morning_note_store.update_config(parsed, client_epoch, has_client_epoch)) {
+                request->send(500, "application/json", "{\"error\":\"Could not save morning note config\"}");
+                return;
+            }
+            AsyncWebServerResponse* response =
+                request->beginResponse(200, "application/json", morning_note_store.status_json());
+            response->addHeader("Cache-Control", "no-store");
+            request->send(response);
+        },
+        nullptr,
+        [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+            if (!request || !data) return;
+            auto* body = static_cast<NoteBodyState*>(request->_tempObject);
+            if (index == 0 && !body) {
+                body = static_cast<NoteBodyState*>(calloc(1, sizeof(NoteBodyState)));
+                request->_tempObject = body;
+            }
+            if (!body) return;
+            if (total >= sizeof(body->json) || index + len >= sizeof(body->json)) {
+                body->overflow = true;
+                return;
+            }
+            memcpy(body->json + index, data, len);
+            body->len = index + len;
+            body->json[body->len] = '\0';
+        });
+
+    server_.on(AsyncURIMatcher::exact("/api/v1/note"), HTTP_DELETE, [this](AsyncWebServerRequest* request) {
+        if (!request_origin_allowed(request)) {
+            request->send(403, "application/json", "{\"error\":\"Request origin is not allowed\"}");
+            return;
+        }
+        if (ota_active_.load() ||
+            (grind_controller_ && grind_controller_->is_active()) ||
+            (bluetooth_manager_ && bluetooth_manager_->is_transfer_active()) ||
+            morning_note_store.is_upload_active()) {
+            request->send(409, "application/json", "{\"error\":\"Morning note storage is busy\"}");
+            return;
+        }
+        if (!morning_note_store.clear_note()) {
+            request->send(500, "application/json", "{\"error\":\"Could not clear morning note\"}");
+            return;
+        }
+        AsyncWebServerResponse* response =
+            request->beginResponse(200, "application/json", morning_note_store.status_json());
+        response->addHeader("Cache-Control", "no-store");
+        request->send(response);
+    });
+
+    server_.on(
+        AsyncURIMatcher::exact("/api/v1/note/image"), HTTP_POST,
+        [](AsyncWebServerRequest* request) {
+            if (request->getResponse()) return;
+            auto* state = static_cast<NoteUploadState*>(request->_tempObject);
+            if (!state || !state->complete) {
+                request->send(400, "application/json", "{\"error\":\"Morning note image was not received\"}");
+                return;
+            }
+            request->send(state->success ? 200 : 500, "application/json",
+                          state->success ? "{\"saved\":true}" : "{\"error\":\"Morning note image upload failed\"}");
+        },
+        [this](AsyncWebServerRequest* request, String, size_t index,
+               uint8_t* data, size_t len, bool final) {
+            if (request->getResponse()) return;
+            auto* state = static_cast<NoteUploadState*>(request->_tempObject);
+            if (index == 0) {
+                if (!request_origin_allowed(request)) {
+                    request->send(403, "application/json", "{\"error\":\"Request origin is not allowed\"}");
+                    return;
+                }
+                state = static_cast<NoteUploadState*>(calloc(1, sizeof(NoteUploadState)));
+                request->_tempObject = state;
+                if (!state) {
+                    request->send(503, "application/json", "{\"error\":\"Not enough memory to start upload\"}");
+                    return;
+                }
+                if (ota_active_.load() ||
+                    (grind_controller_ && grind_controller_->is_active()) ||
+                    (bluetooth_manager_ && bluetooth_manager_->is_transfer_active()) ||
+                    morning_note_store.is_upload_active()) {
+                    request->send(409, "application/json", "{\"error\":\"Stop the grinder and other transfers before uploading\"}");
+                    return;
+                }
+                if (!morning_note_store.begin_image_upload(BLE_IMAGE_EXPECTED_SIZE)) {
+                    request->send(409, "application/json", "{\"error\":\"Another operation is using the grinder\"}");
+                    return;
+                }
+                request->onDisconnect([state]() {
+                    if (state && !state->complete) {
+                        morning_note_store.abort_image_upload();
+                    }
+                });
+            }
+            if (!state) return;
+            if (len && !morning_note_store.write_image_chunk(data, len)) {
+                state->complete = true;
+                state->success = false;
+                morning_note_store.abort_image_upload();
+                request->send(500, "application/json", "{\"error\":\"Could not store note image data\"}");
+                return;
+            }
+            if (final) {
+                state->complete = true;
+                state->success = morning_note_store.finish_image_upload();
+            }
+        });
+
+    server_.on(AsyncURIMatcher::exact("/api/v1/note/image"), HTTP_GET, [this](AsyncWebServerRequest* request) {
+        if ((grind_controller_ && grind_controller_->is_active()) || ota_active_.load() ||
+            (bluetooth_manager_ && bluetooth_manager_->is_transfer_active()) ||
+            morning_note_store.is_upload_active()) {
+            request->send(409, "application/json", "{\"error\":\"Morning note image is busy\"}");
+            return;
+        }
+        if (!morning_note_store.has_image()) {
+            request->send(404, "application/json", "{\"error\":\"No morning note image is stored\"}");
+            return;
+        }
+        AsyncWebServerResponse* response = request->beginResponse(
+            LittleFS, MORNING_NOTE_IMAGE_FILENAME, "application/vnd.smartgrind.rgb565", false);
+        response->addHeader("Cache-Control", "private, no-store");
+        request->send(response);
+    });
+
+    server_.on(AsyncURIMatcher::exact("/api/v1/note/preview"), HTTP_POST, [this](AsyncWebServerRequest* request) {
+        if (!request_origin_allowed(request)) {
+            request->send(403, "application/json", "{\"error\":\"Request origin is not allowed\"}");
+            return;
+        }
+        if (ota_active_.load() ||
+            (grind_controller_ && grind_controller_->is_active()) ||
+            morning_note_store.is_upload_active()) {
+            request->send(409, "application/json", "{\"error\":\"Grinder must be idle to preview a note\"}");
+            return;
+        }
+        if (!morning_note_store.has_image()) {
+            request->send(404, "application/json", "{\"error\":\"Upload a note frame before previewing\"}");
+            return;
+        }
+        uint16_t duration_s = morning_note::kDefaultPreviewDurationS;
+        if (request->hasParam("duration_s", true)) {
+            const long parsed = request->getParam("duration_s", true)->value().toInt();
+            if (parsed >= 1 && parsed <= morning_note::kMaxPreviewDurationS) {
+                duration_s = static_cast<uint16_t>(parsed);
+            }
+        } else if (request->hasParam("duration_s")) {
+            const long parsed = request->getParam("duration_s")->value().toInt();
+            if (parsed >= 1 && parsed <= morning_note::kMaxPreviewDurationS) {
+                duration_s = static_cast<uint16_t>(parsed);
+            }
+        }
+        if (!morning_note_store.request_preview(duration_s)) {
+            request->send(409, "application/json", "{\"error\":\"Could not schedule preview\"}");
+            return;
+        }
+        char body[64];
+        snprintf(body, sizeof(body), "{\"previewing\":true,\"duration_s\":%u}",
+                 static_cast<unsigned>(duration_s));
+        AsyncWebServerResponse* response = request->beginResponse(200, "application/json", body);
+        response->addHeader("Cache-Control", "no-store");
+        request->send(response);
     });
 
     server_.on(AsyncURIMatcher::exact("/api/v1/ota/prepare"), HTTP_POST, [this](AsyncWebServerRequest* request) {

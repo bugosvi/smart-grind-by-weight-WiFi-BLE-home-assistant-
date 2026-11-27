@@ -163,10 +163,32 @@ original precision; completed graphs are replaced with the full recorded trace.
 - `GET /api/v1/status`: device, build, network, memory and OTA progress state,
   plus the WebSocket path, protocol level and advertised command capabilities.
 - `GET /api/v1/settings`: the three grinder profiles and the matching on-device
-  automation, purge, display, screensaver, optional GaggiMate host, logging,
-  swipe and Bluetooth values.
+  automation, purge, display (including `grind_layout`: `arc`, `chart`, or
+  `portafilter`), screensaver, optional GaggiMate host, logging, swipe and
+  Bluetooth values.
 - `POST /api/v1/settings`: validates a complete form and queues its application
   on the normal UI task. It is refused while grinding.
+- `GET` and `POST /api/v1/safety`: read or update remote cup interlock bounds,
+  remote grind timeout, no-flow watchdog, Wi-Fi TX power cap, and the
+  `adaptive_grind_enabled` / `adaptive_coast_enabled` / `reset_adaptive_coast`
+  precision grinding controls (accepts JSON or form-encoded bodies).
+- `POST /api/v1/safety/calibrate-empty`: captures the settled empty-fork raw
+  ADC reference required before enabling `require_cup_on_remote`.
+- `GET`, `POST` and `DELETE /api/v1/note`: inspect, schedule, or clear the
+  AMOLED Morning Note stored in LittleFS (`/note.json`). Supports `immediate`,
+  `one_shot` (`start_epoch`..`end_epoch`), and `daily` (`start_min`..`end_min`
+  with `tz_offset_min`) schedules, enforces a 6-hour maximum window for AMOLED
+  longevity, anchors an offline fallback clock from `client_epoch` if NTP is
+  unavailable, wakes a powered-off panel at dimmed brightness with `±3 px`
+  pixel-shift, and optionally auto-clears after the first completed grind.
+- `GET` and `POST /api/v1/note/image`: read or transactionally replace the
+  `280 × 456` RGB565 Morning Note frame (`/note.rgb565`) without modifying the
+  user's custom screensaver (`/screensaver.rgb565`).
+- `POST /api/v1/note/preview`: displays the stored Morning Note frame on the
+  grinder screen for 10 seconds (configurable up to 30 s) while idle on the
+  Ready screen.
+- `GET /manifest.webmanifest`: Web App Manifest enabling Add-to-Home-Screen
+  installation of the embedded Smart Grind Studio web interface.
 - `POST /api/v1/profile`: selects Single, Double or Custom while idle, persists
   the selection and keeps the touchscreen and dashboard target in sync.
 - `GET /api/v1/history`: validated summaries for the latest 10 stored sessions.
@@ -177,7 +199,8 @@ original precision; completed graphs are replaced with the full recorded trace.
 - `GET`, `POST` and `DELETE /api/v1/screensaver/image`: read, transactionally
   replace or remove the fixed-size RGB565 custom image while idle.
 
-Settings and screensaver mutations enforce same-origin checks. Local API and
+Settings, safety, morning-note and screensaver mutations enforce same-origin
+checks. Local API and
 motor commands are currently unauthenticated, so the grinder should be kept on
 a trusted home network. Web OTA is
 deliberately unauthenticated at this stage; browser confirmation plus the

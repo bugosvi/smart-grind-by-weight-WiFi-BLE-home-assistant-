@@ -30,10 +30,14 @@ public:
     /// Load image from LittleFS and display as full-screen overlay
     void show();
 
+    /// Load Morning Note RGB565 frame from MorningNoteStore and display as overlay
+    bool show_morning_note(bool pixel_shift = true);
+
     /// Hide overlay and free image buffer
     void hide();
 
     bool is_visible() const { return visible_; }
+    bool is_showing_morning_note() const { return visible_ && showing_morning_note_; }
 
 private:
     lv_obj_t* overlay_screen_;
@@ -48,6 +52,7 @@ private:
     String style_;
     uint8_t animation_step_;
     bool visible_;
+    bool showing_morning_note_;
 
     String selected_style() const;
     bool has_custom_image() const;
@@ -55,5 +60,6 @@ private:
     void update_builtin();
     static void animation_timer_callback(lv_timer_t* timer);
     bool load_image();
+    bool load_morning_note_image();
     void free_image();
 };

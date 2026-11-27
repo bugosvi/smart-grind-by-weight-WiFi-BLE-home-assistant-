@@ -2,6 +2,7 @@
 #include "../../config/constants.h"
 #include "../../config/logging.h"
 #include "../../system/screensaver_settings.h"
+#include "../../system/morning_note_store.h"
 #include "../../network/gaggimate_status_client.h"
 #include <algorithm>
 #include <cmath>
@@ -20,7 +21,8 @@ ScreensaverController::ScreensaverController()
     , animation_timer_(nullptr)
     , image_buffer_(nullptr)
     , animation_step_(0)
-    , visible_(false) {
+    , visible_(false)
+    , showing_morning_note_(false) {
     memset(&image_dsc_, 0, sizeof(image_dsc_));
 }
 
@@ -111,7 +113,49 @@ void ScreensaverController::show() {
 
     // Load the overlay screen
     lv_screen_load(overlay_screen_);
+    showing_morning_note_ = false;
     visible_ = true;
+}
+
+bool ScreensaverController::show_morning_note(bool pixel_shift) {
+    if (visible_) return false;
+    if (!load_morning_note_image()) return false;
+
+    previous_screen_ = lv_scr_act();
+    overlay_screen_ = lv_obj_create(nullptr);
+    if (!overlay_screen_) {
+        free_image();
+        return false;
+    }
+    lv_obj_set_style_bg_color(overlay_screen_, lv_color_hex(0x000000), 0);
+    lv_obj_set_style_bg_opa(overlay_screen_, LV_OPA_COVER, 0);
+    lv_obj_remove_flag(overlay_screen_, LV_OBJ_FLAG_SCROLLABLE);
+
+    image_widget_ = lv_img_create(overlay_screen_);
+    if (!image_widget_) {
+        lv_obj_delete(overlay_screen_);
+        overlay_screen_ = nullptr;
+        free_image();
+        return false;
+    }
+    image_dsc_.header.cf = LV_COLOR_FORMAT_RGB565;
+    image_dsc_.header.w = HW_DISPLAY_WIDTH_PX;
+    image_dsc_.header.h = HW_DISPLAY_HEIGHT_PX;
+    image_dsc_.data_size = BLE_IMAGE_EXPECTED_SIZE;
+    image_dsc_.data = image_buffer_;
+    lv_img_set_src(image_widget_, &image_dsc_);
+    lv_obj_center(image_widget_);
+
+    animation_step_ = 0;
+    if (pixel_shift) {
+        animation_timer_ = lv_timer_create(animation_timer_callback, 45000, this);
+    }
+
+    style_ = "morning_note";
+    lv_screen_load(overlay_screen_);
+    showing_morning_note_ = true;
+    visible_ = true;
+    return true;
 }
 
 void ScreensaverController::hide() {
@@ -137,6 +181,7 @@ void ScreensaverController::hide() {
     }
 
     free_image();
+    showing_morning_note_ = false;
     visible_ = false;
 }
 
@@ -202,7 +247,18 @@ void ScreensaverController::animation_timer_callback(lv_timer_t* timer) {
 }
 
 void ScreensaverController::update_builtin() {
-    if (!visible_ || !primary_label_) return;
+    if (!visible_) return;
+    if (showing_morning_note_) {
+        if (!image_widget_) return;
+        animation_step_ = static_cast<uint8_t>((animation_step_ + 1) % 8);
+        static const int8_t offsets[][2] = {
+            {0, 0}, {3, 0}, {3, 3}, {0, 3}, {-3, 3}, {-3, 0}, {-3, -3}, {0, -3}
+        };
+        lv_obj_align(image_widget_, LV_ALIGN_CENTER,
+                     offsets[animation_step_][0], offsets[animation_step_][1]);
+        return;
+    }
+    if (!primary_label_) return;
     animation_step_ = static_cast<uint8_t>((animation_step_ + 1) % 8);
     if (style_ == "orbit") {
         static const lv_align_t alignments[] = {
@@ -290,6 +346,21 @@ bool ScreensaverController::load_image() {
         return false;
     }
 
+    return true;
+}
+
+bool ScreensaverController::load_morning_note_image() {
+    image_buffer_ = static_cast<uint8_t*>(
+        heap_caps_malloc(BLE_IMAGE_EXPECTED_SIZE, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+    if (!image_buffer_) {
+        LOG_BLE("[NOTE] PSRAM allocation failed (%d bytes)\n", BLE_IMAGE_EXPECTED_SIZE);
+        return false;
+    }
+    if (!morning_note_store.load_image_buffer(image_buffer_, BLE_IMAGE_EXPECTED_SIZE)) {
+        LOG_BLE("[NOTE] Failed to read morning note frame from LittleFS\n");
+        free_image();
+        return false;
+    }
     return true;
 }
 

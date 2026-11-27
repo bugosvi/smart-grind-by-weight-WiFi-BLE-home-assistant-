@@ -8,6 +8,9 @@
 #include "../../controllers/grind_events.h"
 #include "../../controllers/grind_mode.h"
 #include "../../logging/grind_logging.h"
+#ifndef SMART_GRIND_SIM
+#include "../../network/device_api.h"
+#endif
 #include "../ui_manager.h"
 
 GrindingUIController* GrindingUIController::instance_ = nullptr;
@@ -301,6 +304,9 @@ void GrindingUIController::handle_layout_toggle() {
         } else {
             ui_manager_->grinding_screen.set_layout(GrindScreenLayout::MINIMAL_ARC);
         }
+#ifndef SMART_GRIND_SIM
+        device_api.mark_settings_dirty();
+#endif
     }
 }
 
