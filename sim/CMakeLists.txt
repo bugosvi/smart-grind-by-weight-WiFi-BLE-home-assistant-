@@ -33,6 +33,7 @@ add_executable(smart-grind-sim
     "${PROJECT_ROOT}/src/ui/screens/ready_screen.cpp"
     "${PROJECT_ROOT}/src/ui/screens/grinding_screen_arc.cpp"
     "${PROJECT_ROOT}/src/ui/screens/grinding_screen_chart.cpp"
+    "${PROJECT_ROOT}/src/ui/screens/grinding_screen_portafilter.cpp"
     "${PROJECT_ROOT}/src/font/lv_font_montserrat_56.c"
     "${PROJECT_ROOT}/src/font/lv_font_montserrat_60.c"
 )

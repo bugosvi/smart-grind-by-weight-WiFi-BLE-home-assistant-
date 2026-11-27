@@ -24,5 +24,6 @@ public:
 
 enum class GrindScreenLayout {
     MINIMAL_ARC,   // Original arc-based screen
-    NERDY_CHART    // Chart-based screen
+    NERDY_CHART,   // Chart-based screen
+    PORTAFILTER    // Animated Italian portafilter + live mini-chart screen
 };

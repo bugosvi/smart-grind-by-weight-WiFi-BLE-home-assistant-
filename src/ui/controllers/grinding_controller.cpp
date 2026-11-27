@@ -100,6 +100,16 @@ void GrindingUIController::register_events() {
         }, LV_EVENT_CLICKED, this);
     }
 
+    if (lv_obj_t* pf = ui_manager_->grinding_screen.get_portafilter_screen_obj()) {
+        lv_obj_add_event_cb(pf, [](lv_event_t* e) {
+            if (lv_event_get_code(e) == LV_EVENT_CLICKED) {
+                if (auto* controller = static_cast<GrindingUIController*>(lv_event_get_user_data(e))) {
+                    controller->handle_layout_toggle();
+                }
+            }
+        }, LV_EVENT_CLICKED, this);
+    }
+
     // NOTE: Purge confirm reuses existing grind_button_ (CANCEL) and pulse_button_ (CONTINUE)
     // No additional event registration needed - handle_pulse_button() checks for PURGE_CONFIRM phase
 }
@@ -258,6 +268,9 @@ void GrindingUIController::handle_pulse_button() {
             LOG_BLE("[UIManager] Pause button clicked\n");
             ui_manager_->grind_controller->pause_grind();
         }
+        ui_manager_->grinding_screen.update_phase(
+            GrindPhase::TIME_GRINDING,
+            ui_manager_->grind_controller->is_grind_paused());
         update_grind_button_icon();
         return;
     }
@@ -283,6 +296,8 @@ void GrindingUIController::handle_layout_toggle() {
         GrindScreenLayout current_layout = ui_manager_->grinding_screen.get_layout();
         if (current_layout == GrindScreenLayout::MINIMAL_ARC) {
             ui_manager_->grinding_screen.set_layout(GrindScreenLayout::NERDY_CHART);
+        } else if (current_layout == GrindScreenLayout::NERDY_CHART) {
+            ui_manager_->grinding_screen.set_layout(GrindScreenLayout::PORTAFILTER);
         } else {
             ui_manager_->grinding_screen.set_layout(GrindScreenLayout::MINIMAL_ARC);
         }
@@ -498,6 +513,12 @@ void GrindingUIController::handle_grind_event(const GrindEventData& event_data) 
                 update_grind_button_icon();
             }
 
+            const bool paused =
+                (event_data.mode == GrindMode::TIME &&
+                 ui_manager_->grind_controller &&
+                 ui_manager_->grind_controller->is_grind_paused());
+            ui_manager_->grinding_screen.update_phase(event_data.phase, paused);
+
             if (event_data.show_taring_text) {
                 ui_manager_->grinding_screen.update_tare_display();
             } else {
@@ -516,6 +537,12 @@ void GrindingUIController::handle_grind_event(const GrindEventData& event_data) 
             break;
         }
         case UIGrindEvent::PROGRESS_UPDATED: {
+            const bool paused =
+                (event_data.mode == GrindMode::TIME &&
+                 ui_manager_->grind_controller &&
+                 ui_manager_->grind_controller->is_grind_paused());
+            ui_manager_->grinding_screen.update_phase(event_data.phase, paused);
+
             if (event_data.show_taring_text) {
                 ui_manager_->grinding_screen.update_tare_display();
             } else {
@@ -608,6 +635,7 @@ void GrindingUIController::handle_grind_event(const GrindEventData& event_data) 
         case UIGrindEvent::PULSE_STARTED:
             LOG_BLE("[UIManager] Pulse #%d started (%.1fms)\n",
                     event_data.pulse_count, (float)event_data.pulse_duration_ms);
+            ui_manager_->grinding_screen.set_completed(false);
 #if DEBUG_ENABLE_GRINDER_BACKGROUND_INDICATOR
         {
             static lv_style_t style_bg;
@@ -657,12 +685,13 @@ void GrindingUIController::enter_edit_state() {
 
 void GrindingUIController::enter_grinding_state() {
     WeightSensor* weight_sensor = ui_manager_->hardware_manager->get_weight_sensor();
+    ui_manager_->grinding_screen.set_mode(ui_manager_->current_mode);
     ui_manager_->grinding_screen.reset_chart_data();
+    ui_manager_->grinding_screen.set_completed(false, false);
     ui_manager_->grinding_screen.update_profile_name(
         ui_manager_->current_mode == GrindMode::MANUAL
             ? "MANUAL"
             : ui_manager_->profile_controller->get_current_name());
-    ui_manager_->grinding_screen.set_mode(ui_manager_->current_mode);
     chart_updates_enabled_ = true;
     update_grinding_targets();
     if (weight_sensor) {
@@ -678,6 +707,10 @@ void GrindingUIController::enter_grind_complete_state() {
     if (grind_button_) {
         lv_obj_clear_flag(grind_button_, LV_OBJ_FLAG_HIDDEN);
     }
+    const bool overshoot =
+        (ui_manager_->grind_controller &&
+         ui_manager_->grind_controller->get_last_session_result() == GrindSessionResult::OVERSHOOT);
+    ui_manager_->grinding_screen.set_completed(true, overshoot);
     ui_manager_->grinding_screen.update_profile_name(ui_manager_->profile_controller->get_current_name());
     ui_manager_->grinding_screen.set_mode(ui_manager_->current_mode);
     ui_manager_->grinding_screen.update_current_weight(final_grind_weight_);
@@ -689,6 +722,7 @@ void GrindingUIController::enter_grind_timeout_state() {
         lv_obj_clear_flag(grind_button_, LV_OBJ_FLAG_HIDDEN);
     }
     ui_manager_->grinding_screen.set_mode(ui_manager_->current_mode);
+    ui_manager_->grinding_screen.set_error_state(true);
     ui_manager_->grinding_screen.update_profile_name("ERROR");
     char error_display[64];
     const char* message = error_message_[0] ? error_message_ : "Error";
